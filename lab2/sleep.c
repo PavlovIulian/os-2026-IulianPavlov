@@ -8,9 +8,7 @@ main(int argc, char *argv[])
     fprintf(2, "usage: sleep <ticks>\n");
     exit(1);
   }
-  
-  // Note: Upstream MIT xv6 renamed sleep() to pause() in Aug 2025
-  // to avoid name clashes with the kernel internal sleep(chan, lock).
+
   pause(atoi(argv[1]));
   exit(0);
 }

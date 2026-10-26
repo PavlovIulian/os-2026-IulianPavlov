@@ -9,6 +9,11 @@ main(int argc, char *argv[])
   int n, r, k, i;
   char c;
 
+  if(argc < 2){
+    fprintf(2, "usage: xargs command [args...]\n");
+    exit(1);
+  }
+
   for(i = 1; i < argc && i < MAXARG - 1; i++)
     args[i-1] = argv[i];
   int base = i - 1;
@@ -32,6 +37,12 @@ main(int argc, char *argv[])
       while(*s && *s != ' ') s++;
     }
     args[k] = 0;
+
+    if(k == base){
+      if(r != 1)
+        break;
+      continue;
+    }
 
     if(fork() == 0){
       exec(args[0], args);

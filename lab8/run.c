@@ -1,28 +1,27 @@
 #include "kernel/types.h"
 #include "user/user.h"
 
-// the three steps of the shell, inside xv6: echo hello from the child
 int
 main(int argc, char *argv[])
 {
   printf("parent: my pid is %d\n", getpid());
 
-  int pid = fork(); // step 1: copy myself
+  int pid = fork();
   if(pid < 0){
     printf("fork failed\n");
     exit(1);
   }
 
-  if(pid == 0){ // only the child runs this
+  if(pid == 0){ 
     printf("child: my pid is %d\n", getpid());
     char *args[] = { "echo", "hello", "from", "the", "child", 0 };
-    exec("echo", args); // step 2: become echo
-    printf("exec failed\n"); // runs only if exec failed
+    exec("echo", args);
+    printf("exec failed\n"); 
     exit(1);
   }
 
   int status;
-  wait(&status); // step 3: wait for the child
+  wait(&status); 
   printf("parent: child %d ended with status %d\n", pid, status);
   exit(0);
 }

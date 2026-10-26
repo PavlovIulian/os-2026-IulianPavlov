@@ -1,8 +1,7 @@
 #include "kernel/types.h"
 #include "user/user.h"
 
-int
-main(int argc, char *argv[])
+int main(int argc, char *argv[])
 {
   int p2c[2], c2p[2];
   char b = 'x';
