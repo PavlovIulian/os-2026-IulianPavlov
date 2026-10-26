@@ -1,0 +1,534 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{textcomp}
+\usepackage{newunicodechar}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{tabularx}
+\usepackage{array}
+
+% Adjust header height for fancyhdr
+\setlength{\headheight}{15pt}
+\addtolength{\topmargin}{-3pt}
+
+% Romanian Unicode support for standard pdflatex
+\newunicodechar{Ă}{\v{A}}
+\newunicodechar{ă}{\v{a}}
+\newunicodechar{Â}{\^{A}}
+\newunicodechar{â}{\^{a}}
+\newunicodechar{Î}{\^{I}}
+\newunicodechar{î}{\^{i}}
+\newunicodechar{Ș}{\c{S}}
+\newunicodechar{ș}{\c{s}}
+\newunicodechar{Ț}{\c{T}}
+\newunicodechar{ț}{\c{t}}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+    citecolor=blue
+}
+
+% Colors for code listings
+\definecolor{codebg}{gray}{0.96}
+\definecolor{codegreen}{rgb}{0.13,0.55,0.13}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{codeblue}{rgb}{0.05,0.25,0.70}
+
+\lstset{
+    backgroundcolor=\color{codebg},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    breakatwhitespace=true,
+    frame=single,
+    rulecolor=\color{gray!40},
+    keepspaces=true,
+    showstringspaces=false,
+    upquote=true,
+    columns=fullflexible,
+    tabsize=2
+}
+
+\lstdefinestyle{cstyle}{
+    language=C,
+    commentstyle=\color{codegreen}\itshape,
+    keywordstyle=\color{codeblue}\bfseries,
+    stringstyle=\color{codepurple},
+    numbers=left,
+    numbersep=7pt,
+    numberstyle=\tiny\color{codegray},
+    stepnumber=1
+}
+
+\lstdefinestyle{bashstyle}{
+    language=bash,
+    commentstyle=\color{codegreen}\itshape,
+    keywordstyle=\color{codeblue}\bfseries,
+    stringstyle=\color{codepurple},
+    numbers=left,
+    numbersep=7pt,
+    numberstyle=\tiny\color{codegray},
+    stepnumber=1
+}
+
+\lstdefinestyle{consolestyle}{
+    backgroundcolor=\color{codebg},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    frame=single,
+    rulecolor=\color{gray!40},
+    numbers=none
+}
+
+% Header and Footer
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{Operating Systems -- Lab 2}
+\rhead{Iulian Pavlov, FAF-241}
+\cfoot{\thepage}
+
+\begin{document}
+
+% ============================================================================
+% TITLE PAGE
+% ============================================================================
+\begin{titlepage}
+\begin{center}
+    \includegraphics[width=0.3\textwidth]{logo.png} \\[0.2cm] 
+    
+    \textbf{MINISTRY OF EDUCATION, CULTURE AND RESEARCH \\ OF THE REPUBLIC OF MOLDOVA} \\[0.3cm]
+    
+    \textbf{Technical University of Moldova \\ Faculty of Computers, Informatics and Microelectronics \\ Department of Software and Automation Engineering} \\[1.8cm]
+    
+    \textbf{Iulian Pavlov, FAF-241}\\[0.5cm]
+    
+    \Huge \textbf{Report} \\[0.5cm]
+    
+    \large Laboratory work nr. 2 \\[0.5cm]
+    
+    \textbf{\Large Meet the OS You Will Build (xv6)} \\[0.3cm]
+    \normalsize Course: Operating Systems (Track B) \\[2.2cm]
+
+    \begin{flushright}
+        \textit{Checked by:} \\
+        \textbf{Reițman Patricia}, \textit{University Assistant} \\
+        Department of Software and Automation Engineering, \\
+        FCIM Faculty, UTM 
+    \end{flushright}
+
+    \vfill
+    Chișinău -- 2026
+\end{center}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% ============================================================================
+% 1. OBJECTIVES AND THEORETICAL BACKGROUND
+% ============================================================================
+\section{Objectives and Theoretical Background}
+
+\subsection{Laboratory Overview}
+The primary objective of this laboratory is to build and boot the xv6 operating system on the RISC-V 64-bit architecture, explore its userland commands, understand the fundamental boundary between user space and kernel space, and implement our first user-space utility (\texttt{sleep.c}).
+
+Key topics covered include:
+\begin{itemize}
+    \item Cross-compilation toolchain configuration for bare-metal RISC-V (\texttt{riscv64-elf-gcc}, binutils, QEMU).
+    \item Kernel compilation, user programs building, and filesystem packaging (\texttt{fs.img}).
+    \item Execution under the QEMU emulator (\texttt{qemu-system-riscv64}).
+    \item Operating xv6 utilities: file inspection, pipelines, and the kernel regression test suite (\texttt{usertests}).
+    \item Tracing the hardware privilege boundary between User mode (U-mode) and Supervisor mode (S-mode).
+    \item System call invocation via \texttt{ecall} and trap vectoring into the kernel.
+    \item Development and verification of the \texttt{sleep} utility.
+\end{itemize}
+
+\subsection{Theoretical Foundations: xv6 and RISC-V Architecture}
+xv6 is an educational re-implementation of Dennis Ritchie and Ken Thompson's Unix Version 6 (v6, 1975). Implemented in modern ANSI C for multi-core RISC-V processors, it contains approximately 9,000 lines of code.
+
+\subsubsection{RISC-V Privilege Modes}
+RISC-V hardware defines three privilege levels:
+\begin{enumerate}
+    \item \textbf{Machine Mode (M-mode):} Unrestricted physical hardware execution, used during early boot.
+    \item \textbf{Supervisor Mode (S-mode):} The operating system kernel mode. In xv6, the kernel runs in S-mode, allowing it to program page tables (\texttt{satp}), configure timer interrupts, and access peripheral devices.
+    \item \textbf{User Mode (U-mode):} Unprivileged execution for user programs (\texttt{sh}, \texttt{ls}, \texttt{cat}, \texttt{sleep}). User programs are isolated by virtual memory and prohibited from executing privileged instructions.
+\end{enumerate}
+
+\subsubsection{System Call Transition}
+When a user program issues a system call like \texttt{read()} or \texttt{write()}, it cannot jump directly to kernel addresses. Instead, it places the syscall number in register \texttt{a7} and triggers the \texttt{ecall} instruction. The hardware transitions to S-mode, invokes the kernel trap handler, validates arguments, runs the kernel implementation, and returns to U-mode via \texttt{sret}.
+
+% ============================================================================
+% 2. ENVIRONMENT SETUP
+% ============================================================================
+\section{Environment Setup and Toolchain Configuration}
+
+\subsection{Repository Cloning}
+The course copy of xv6 was cloned into the home directory:
+\begin{lstlisting}[style=bashstyle]
+cd ~/xv6-riscv 2>/dev/null || \
+git clone https://github.com/mit-pdos/xv6-riscv ~/xv6-riscv
+cd ~/xv6-riscv
+ls
+\end{lstlisting}
+
+\begin{lstlisting}[style=consolestyle]
+Cloning into '/home/sunflower/xv6-riscv'...
+remote: Enumerating objects: 8334, done.
+remote: Counting objects: 100% (33/33), done.
+remote: Compressing objects: 100% (22/22), done.
+Receiving objects: 100% (8334/8334), 17.67 MiB | 2.23 MiB/s, done.
+Resolving deltas: 100% (4583/4583), done.
+Permissions Size User      Date Modified Name
+drwxr-xr-x     - sunflower 28 Sep 17:30  kernel
+drwxr-xr-x     - sunflower 28 Sep 17:30  mkfs
+drwxr-xr-x     - sunflower 28 Sep 17:30  user
+.rw-r--r--  1.2k sunflower 28 Sep 17:30  LICENSE
+.rw-r--r--  5.7k sunflower 28 Sep 17:30  Makefile
+.rw-r--r--  2.4k sunflower 28 Sep 17:30  README
+.rwxr-xr-x  6.1k sunflower 28 Sep 17:30  test-xv6.py
+\end{lstlisting}
+
+\subsection{Toolchain Diagnostics and Installation}
+Attempting to compile immediately without the toolchain failed:
+\begin{lstlisting}[style=bashstyle]
+make qemu
+\end{lstlisting}
+
+\begin{lstlisting}[style=consolestyle]
+*** Error: Couldn't find a riscv64 version of GCC/binutils.
+*** To turn off this error, run 'gmake TOOLPREFIX= ...'.
+/bin/sh: line 1: qemu-system-riscv64: command not found
+/bin/sh: line 1: bc: command not found
+gcc -march=rv64gc -g -ffile-prefix-map=/home/sunflower/xv6-riscv=. -c -o kernel/entry.o kernel/entry.S
+cc1: error: bad value 'rv64gc' for '-march=' switch
+make: *** [Makefile:99: kernel/entry.o] Error 1
+\end{lstlisting}
+
+The required packages were installed on Arch Linux:
+\begin{lstlisting}[style=bashstyle]
+sudo pacman -S --needed base-devel git bc qemu-system-riscv \
+  riscv64-elf-gcc riscv64-elf-binutils riscv64-elf-gdb
+\end{lstlisting}
+
+% ============================================================================
+% 3. PART 1: BUILD AND BOOT
+% ============================================================================
+\section{Part 1: Build and Boot xv6}
+
+Compiling the kernel and userland programs and launching QEMU:
+\begin{lstlisting}[style=bashstyle]
+cd ~/xv6-riscv
+make clean
+make qemu
+\end{lstlisting}
+
+\begin{lstlisting}[style=consolestyle]
+qemu-system-riscv64 -machine virt -bios none -kernel kernel/kernel -m 128M -smp 3 \
+  -nographic -global virtio-mmio.force-legacy=false -drive file=fs.img,if=none,format=raw,id=x0 \
+  -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
+
+xv6 kernel is booting
+
+hart 2 starting
+hart 1 starting
+init: starting sh
+$
+\end{lstlisting}
+
+\textbf{Boot Sequence Analysis:}
+\begin{itemize}
+    \item QEMU instantiates 3 virtual RISC-V harts (hardware threads/cores).
+    \item Hart 0 performs device and page-table initialization, subsequently waking Hart 1 and Hart 2.
+    \item The kernel schedules the initial process \texttt{init}, which forks and executes the shell (\texttt{user/sh.c}).
+\end{itemize}
+
+% ============================================================================
+% 4. PART 2: OPERATING XV6 AS A UNIX SYSTEM
+% ============================================================================
+\section{Part 2: Operating xv6 as a Unix System}
+
+\subsection{File Listing and Content Inspection}
+Running built-in programs within xv6:
+\begin{lstlisting}[style=consolestyle]
+$ ls
+.              1 1 1024
+..             1 1 1024
+README         2 2 2441
+cat            2 3 38112
+echo           2 4 36888
+forktest       2 5 18248
+grep           2 6 41648
+init           2 7 37272
+...
+sync           2 22 36240
+console        3 23 0
+\end{lstlisting}
+
+Displaying file contents and echoing text:
+\begin{lstlisting}[style=consolestyle]
+$ cat README
+xv6 is a re-implementation of Dennis Ritchie's and Ken Thompson's Unix
+Version 6 (v6). xv6 loosely follows the structure and style of v6,
+but is implemented for a modern RISC-V multiprocessor using ANSI C.
+...
+$ echo hello xv6
+hello xv6
+\end{lstlisting}
+
+\subsection{Pipes and Utilities}
+Testing inter-process communication using pipes:
+\begin{lstlisting}[style=consolestyle]
+$ ls | grep c
+cat            2 3 38112
+echo           2 4 36888
+wc             2 17 39136
+console        3 23 0
+\end{lstlisting}
+
+Counting lines, words, and characters:
+\begin{lstlisting}[style=consolestyle]
+$ wc README
+48 336 2441 README
+\end{lstlisting}
+
+\subsection{Kernel Regression Test Suite}
+Executing the full kernel test suite to verify memory safety, file locking, and process isolation:
+\begin{lstlisting}[style=consolestyle]
+$ usertests -q
+usertests starting
+test copyin: OK
+test copyout: OK
+...
+test lazy_copy: OK
+test lazy_copyinstr: OK
+test lazy_sbrk: OK
+test partial_write: OK
+test unlinkcwd: OK
+ALL TESTS PASSED
+\end{lstlisting}
+
+% ============================================================================
+% 5. PART 3: READING THE SOURCE TREE
+% ============================================================================
+\section{Part 3: Reading the Source Tree}
+
+\subsection{Userland Program Anatomy}
+Inspecting \texttt{user/ls.c} (lines 1--40):
+\begin{lstlisting}[style=cstyle]
+#include "kernel/types.h"
+#include "kernel/stat.h"
+#include "user/user.h"
+#include "kernel/fs.h"
+#include "kernel/fcntl.h"
+
+char*
+fmtname(char *path)
+{
+  static char buf[DIRSIZ+1];
+  char *p;
+
+  // Find first character after last slash.
+  for(p=path+strlen(path); p >= path && *p != '/'; p--)
+    ;
+  p++;
+
+  // Return blank-padded name.
+  if(strlen(p) >= DIRSIZ)
+    return p;
+  memmove(buf, p, strlen(p));
+  memset(buf+strlen(p), ' ', DIRSIZ-strlen(p));
+  buf[sizeof(buf)-1] = '\0';
+  return buf;
+}
+
+void
+ls(char *path)
+{
+  char buf[512], *p;
+  int fd;
+  struct dirent de;
+  struct stat st;
+
+  if((fd = open(path, O_RDONLY)) < 0){
+    fprintf(2, "ls: cannot open %s\n", path);
+    return;
+  }
+
+  if(fstat(fd, &st) < 0){
+\end{lstlisting}
+
+Inspecting \texttt{user/cat.c} (lines 1--30):
+\begin{lstlisting}[style=cstyle]
+#include "kernel/types.h"
+#include "kernel/fcntl.h"
+#include "user/user.h"
+
+char buf[512];
+
+void
+cat(int fd)
+{
+  int n;
+
+  while((n = read(fd, buf, sizeof(buf))) > 0) {
+    if (write(1, buf, n) != n) {
+      fprintf(2, "cat: write error\n");
+      exit(1);
+    }
+  }
+  if(n < 0){
+    fprintf(2, "cat: read error\n");
+    exit(1);
+  }
+}
+\end{lstlisting}
+
+\subsection{The System Call Interface}
+Inspecting the user-space declarations in \texttt{user/user.h}:
+\begin{lstlisting}[style=cstyle]
+// system calls
+int fork(void);
+int exit(int) __attribute__((noreturn));
+int wait(int*);
+int pipe(int*);
+int write(int, const void*, int);
+int read(int, void*, int);
+int close(int);
+int kill(int);
+int exec(const char*, char**);
+int open(const char*, int);
+int mknod(const char*, short, short);
+int unlink(const char*);
+int fstat(int fd, struct stat*);
+int link(const char*, const char*);
+int mkdir(const char*);
+int chdir(const char*);
+int dup(int);
+int getpid(void);
+char* sys_sbrk(int, int);
+int pause(int);
+int uptime(void);
+int sync(void);
+\end{lstlisting}
+
+Finding the corresponding kernel-side implementations in \texttt{kernel/sysfile.c}:
+\begin{lstlisting}[style=bashstyle]
+grep -n "sys_read\|sys_write" kernel/sysfile.c | head
+\end{lstlisting}
+\begin{lstlisting}[style=consolestyle]
+69:sys_read(void)
+83:sys_write(void)
+\end{lstlisting}
+
+% ============================================================================
+% 6. PART 4: IMPLEMENTATION OF SLEEP.C
+% ============================================================================
+\section{Part 4: Implementation of \texttt{user/sleep.c}}
+
+\subsection{Program Logic}
+The utility \texttt{sleep.c} takes a tick count argument, invokes the kernel timer pause system call, and handles argument validation:
+\begin{lstlisting}[style=cstyle]
+#include "kernel/types.h"
+#include "user/user.h"
+
+int
+main(int argc, char *argv[])
+{
+  if(argc != 2){
+    fprintf(2, "usage: sleep <ticks>\n");
+    exit(1);
+  }
+
+  // Upstream MIT xv6 renamed sleep() to pause() in Aug 2025
+  // to avoid collisions with the kernel synchronization primitive.
+  pause(atoi(argv[1]));
+  exit(0);
+}
+\end{lstlisting}
+
+\subsection{Makefile Integration}
+The program was registered in the xv6 build system:
+\begin{lstlisting}[style=bashstyle]
+sed -i 's|^\t$U/_echo\\$|&\n\t$U/_sleep\\|' Makefile
+grep -n "_echo\|_sleep" Makefile
+\end{lstlisting}
+\begin{lstlisting}[style=consolestyle]
+134:	$U/_echo\
+135:	$U/_sleep\
+\end{lstlisting}
+
+\subsection{Verification}
+\begin{lstlisting}[style=consolestyle]
+$ make qemu
+$ sleep 10
+$ sleep
+usage: sleep <ticks>
+\end{lstlisting}
+\begin{itemize}
+    \item \texttt{sleep 10}: Process yielded execution for 10 clock ticks (~1 second) and returned cleanly.
+    \item \texttt{sleep}: Emitted the error message to file descriptor 2 (stderr) and exited with code 1.
+\end{itemize}
+
+% ============================================================================
+% 7. ANSWERS TO LABORATORY QUESTIONS
+% ============================================================================
+\section{Answers to Laboratory Questions and Observations}
+
+\subsection{Part 2 Observe Questions}
+\begin{enumerate}
+    \item \textbf{List three programs xv6 ships with.}
+    \begin{itemize}
+        \item \texttt{cat} (\texttt{user/cat.c}): Reads and prints file contents to standard output.
+        \item \texttt{echo} (\texttt{user/echo.c}): Prints its arguments separated by spaces.
+        \item \texttt{grep} (\texttt{user/grep.c}): Searches text for patterns matching an expression.
+    \end{itemize}
+
+    \item \textbf{You just used a pipe (\texttt{|}) inside xv6. Which two OS features must exist for a pipe to work?}
+    \begin{itemize}
+        \item \textbf{Feature 1: Process Concurrency and Isolation (\texttt{fork()}):} The OS must be capable of instantiating and running multiple concurrent processes with isolated memory spaces. In \texttt{ls | grep c}, both programs execute concurrently.
+        \item \textbf{Feature 2: Inter-Process Communication via Kernel Buffers and File Descriptors (\texttt{pipe()}, \texttt{dup()}):} The kernel must provide a synchronized FIFO byte buffer in kernel memory. The shell attaches descriptor 1 (stdout) of the producer (\texttt{ls}) to the write end, and descriptor 0 (stdin) of the consumer (\texttt{grep}) to the read end, with kernel scheduling coordinating sleep and wakeup when the buffer is empty or full.
+    \end{itemize}
+
+    \item \textbf{In one sentence: how does the xv6 shell compare to the Linux shell from Lab 1?}
+    \begin{quote}
+    \textit{The xv6 shell is a minimalist, $\sim$500-line educational command interpreter providing only essential process execution and I/O redirection primitives (\texttt{fork}, \texttt{exec}, \texttt{pipe}, \texttt{<}, \texttt{>}, \texttt{;}, \texttt{\&}, \texttt{cd}), whereas the Linux GNU Bash shell is an industrial POSIX environment supporting wildcard globbing, environment variables, job control, and command history.}
+    \end{quote}
+\end{enumerate}
+
+\subsection{Part 3 Source-Reading and "The Big Idea" Answers}
+\begin{enumerate}
+    \item \textbf{Explain the split between \texttt{kernel/} and \texttt{user/}.}
+    The split reflects the hardware privilege boundary:
+    \begin{itemize}
+        \item \texttt{kernel/} executes in RISC-V Supervisor mode (S-mode) with unrestricted physical access to hardware, interrupts, page tables, and memory-mapped I/O. It implements the core OS services (scheduler, virtual memory, filesystem).
+        \item \texttt{user/} executes in User mode (U-mode), strictly unprivileged and isolated by hardware page tables. User programs cannot directly access hardware or other processes' memory.
+    \end{itemize}
+
+    \item \textbf{Why are \texttt{read()} and \texttt{write()} in \texttt{user/cat.c} not ordinary functions?}
+    They do not execute code within the user process's stack frame. Instead, they are system call stubs (\texttt{usys.S}) that load the syscall number into register \texttt{a7} and execute \texttt{ecall}. This hardware instruction elevates privilege to S-mode, trapping into \texttt{kernel/trap.c} and dispatching to \texttt{sys_read()} or \texttt{sys_write()} in \texttt{kernel/sysfile.c}.
+
+    \item \textbf{The Big Idea Reflection:}
+    On Linux, developers only interact with system calls through library wrappers from user space. In xv6, because the kernel is only $\sim$9,000 lines of ANSI C, we have total visibility into \textbf{both} sides of the boundary: the user program requesting a service and the exact kernel routines fulfilling it.
+\end{enumerate}
+
+% ============================================================================
+% 8. CONCLUSIONS
+% ============================================================================
+\section{Conclusions}
+In this laboratory work, the xv6 operating system was successfully configured, compiled, and booted under QEMU on an Arch Linux environment. Through source inspection and interactive testing, the separation between user space and kernel space was analyzed in detail. Finally, a new user-space program (\texttt{user/sleep.c}) was implemented, integrated into the build system, and verified inside the running operating system.
+
+\end{document}
