@@ -1,0 +1,461 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{textcomp}
+\usepackage{newunicodechar}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{tabularx}
+\usepackage{array}
+
+% Adjust header height for fancyhdr
+\setlength{\headheight}{15pt}
+\addtolength{\topmargin}{-3pt}
+
+% Romanian Unicode support for standard pdflatex / tectonic
+\newunicodechar{Ă}{\v{A}}
+\newunicodechar{ă}{\v{a}}
+\newunicodechar{Â}{\^{A}}
+\newunicodechar{â}{\^{a}}
+\newunicodechar{Î}{\^{I}}
+\newunicodechar{î}{\^{i}}
+\newunicodechar{Ș}{\c{S}}
+\newunicodechar{ș}{\c{s}}
+\newunicodechar{Ț}{\c{T}}
+\newunicodechar{ț}{\c{t}}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=cyan,
+    citecolor=blue
+}
+
+% Colors for code listings
+\definecolor{codebg}{gray}{0.96}
+\definecolor{codegreen}{rgb}{0.13,0.55,0.13}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{codeblue}{rgb}{0.05,0.25,0.70}
+
+\lstset{
+    backgroundcolor=\color{codebg},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    breakatwhitespace=true,
+    frame=single,
+    rulecolor=\color{gray!40},
+    keepspaces=true,
+    showstringspaces=false,
+    upquote=true,
+    columns=fullflexible,
+    tabsize=2
+}
+
+\lstdefinestyle{cstyle}{
+    language=C,
+    commentstyle=\color{codegreen}\itshape,
+    keywordstyle=\color{codeblue}\bfseries,
+    stringstyle=\color{codepurple},
+    numbers=left,
+    numbersep=7pt,
+    numberstyle=\tiny\color{codegray},
+    stepnumber=1
+}
+
+\lstdefinestyle{bashstyle}{
+    language=bash,
+    commentstyle=\color{codegreen}\itshape,
+    keywordstyle=\color{codeblue}\bfseries,
+    stringstyle=\color{codepurple},
+    numbers=left,
+    numbersep=7pt,
+    numberstyle=\tiny\color{codegray},
+    stepnumber=1
+}
+
+\lstdefinestyle{consolestyle}{
+    backgroundcolor=\color{codebg},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    frame=single,
+    rulecolor=\color{gray!40},
+    numbers=none
+}
+
+% Header and Footer
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{Operating Systems -- Lab 10}
+\rhead{Iulian Pavlov, FAF-241}
+\cfoot{\thepage}
+
+\begin{document}
+
+% ============================================================================
+% TITLE PAGE
+% ============================================================================
+\hypersetup{pageanchor=false}
+\begin{titlepage}
+\begin{center}
+    \includegraphics[width=0.3\textwidth]{logo.png} \\[0.2cm]
+
+    \textbf{MINISTRY OF EDUCATION, CULTURE AND RESEARCH \\ OF THE REPUBLIC OF MOLDOVA} \\[0.3cm]
+
+    \textbf{Technical University of Moldova \\ Faculty of Computers, Informatics and Microelectronics \\ Department of Software and Automation Engineering} \\[1.8cm]
+
+    \textbf{Iulian Pavlov, FAF-241}\\[0.5cm]
+
+    \Huge \textbf{Report} \\[0.5cm]
+
+    \large Laboratory work nr. 10 \\[0.5cm]
+
+    \textbf{\Large Add a System Call: \texttt{trace} (xv6)} \\[0.3cm]
+    \normalsize Course: Operating Systems (Track B: build your own small OS (xv6)) \\[2.2cm]
+
+    \begin{flushright}
+        \textit{Checked by:} \\
+        \textbf{Reițman Patricia}, \textit{University Assistant} \\
+        Department of Software and Automation Engineering, \\
+        FCIM Faculty, UTM
+    \end{flushright}
+    \vfill
+
+    Chișinău -- 2026
+\end{center}
+\end{titlepage}
+\hypersetup{pageanchor=true}
+
+\pagenumbering{roman}
+\newpage
+\tableofcontents
+\newpage
+\pagenumbering{arabic}
+
+% ============================================================================
+% 1. THEORETICAL BACKGROUND & OBJECTIVES
+% ============================================================================
+\section{Theoretical Background and Objectives}
+
+\subsection{Laboratory Objectives and Scope}
+In Laboratory Work No.~9, system calls were observed from user space on Linux using \texttt{strace} and the external \texttt{ptrace()} debugging interface. In Laboratory Work No.~10, we move inside the kernel of our teaching operating system, \textbf{xv6-riscv}, to design and implement a native tracing facility from scratch: a new system call \texttt{trace(int mask)} alongside a user-space command \texttt{trace mask command [args...]}.
+
+The core objectives of Laboratory Work No.~10 are:
+\begin{itemize}
+    \item \textbf{User-Space Syscall Plumbing}: Registering the new syscall number (\texttt{SYS\_trace} = \texttt{23}), declaring its C prototype in \texttt{user/\allowbreak user.h}, generating its RISC-V trap stub in \texttt{user/\allowbreak usys.pl}, writing \texttt{user/\allowbreak trace.c}, and registering it under \texttt{UPROGS} in \texttt{Makefile}.
+    \item \textbf{Kernel Dispatch and Process State}: Adding \texttt{trace\_mask} to \texttt{struct proc}, implementing \texttt{sys\_trace()} in \texttt{kernel/\allowbreak sysproc.c}, registering \texttt{syscallnames[]} and \texttt{SYS\_trace} in \texttt{kernel/\allowbreak syscall.c}, and logging matches via \texttt{printk()}.
+    \item \textbf{Mask Inheritance Across Processes}: Propagating \texttt{trace\_mask} from parent to child in \texttt{kfork()} (\texttt{kernel/proc.c}) while preserving it across \texttt{exec()}.
+    \item \textbf{QEMU Verification and Behavioral Analysis}: Tracing \texttt{grep hello README}, \texttt{usertests forkforkfork}, and \texttt{echo hi} under selective and full bitmasks, explaining return codes, process inheritance, and console interleaving.
+\end{itemize}
+
+\subsection{System Call Path and Bitmask Architecture in xv6}
+Every system call in xv6-riscv follows a fixed hardware and software sequence across the user--kernel privilege boundary:
+\begin{enumerate}
+    \item \textbf{RISC-V User Stub}: Calling \texttt{trace(mask)} in C jumps to the assembly stub emitted by \texttt{user/usys.pl}, which leaves the first argument (\texttt{mask}) in register \texttt{a0}, loads \texttt{SYS\_trace} into register \texttt{a7}, and executes \texttt{ecall}.
+    \item \textbf{Trap Entry and Dispatch}: The CPU enters supervisor mode, saves user registers in \texttt{p->trapframe}, and invokes \texttt{syscall()} inside \texttt{kernel/\allowbreak syscall.c}, reading \texttt{num} from \texttt{p->trapframe->a7}, running \texttt{syscalls[num]()}, and saving the result in \texttt{p->trapframe->a0}.
+    \item \textbf{Post-Call Bitmask Check}: Right after \texttt{syscalls[num]()} returns, \texttt{syscall()} tests bit~\texttt{num} using \texttt{(p->trace\_mask >{}> num) \& 1}. If set, \texttt{printk()} emits the PID, name from \texttt{syscallnames[num]}, and return value from \texttt{p->trapframe->a0}.
+\end{enumerate}
+
+\begin{table}[H]
+\centering
+\caption{Selected System Call Constants (\texttt{kernel/syscall.h}) and Corresponding Trace Masks}
+\begin{tabularx}{\textwidth}{l c c c >{\raggedright\arraybackslash}X}
+\toprule
+\textbf{Constant} & \textbf{ID} & \textbf{Decimal ($2^{\text{ID}}$)} & \textbf{Hex Mask} & \textbf{Usage / Observation in Lab 10} \\
+\midrule
+\texttt{SYS\_fork}  & 1  & \texttt{2}          & \texttt{0x00000002} & Fork storm trace in \texttt{forkforkfork} \\
+\texttt{SYS\_read}  & 5  & \texttt{32}         & \texttt{0x00000020} & Selective read trace in \texttt{grep hello README} \\
+\texttt{SYS\_exec}  & 7  & \texttt{128}        & \texttt{0x00000080} & Traced during full mask (\texttt{-> argc}) \\
+\texttt{SYS\_open}  & 15 & \texttt{32768}      & \texttt{0x00008000} & Combined with \texttt{close} in Q4 (\texttt{2129920}) \\
+\texttt{SYS\_write} & 16 & \texttt{65536}      & \texttt{0x00010000} & Console write ordering in \texttt{echo hi} \\
+\texttt{SYS\_close} & 21 & \texttt{2097152}    & \texttt{0x00200000} & Combined with \texttt{open} in Q4 (\texttt{2129920}) \\
+\texttt{SYS\_trace} & 23 & \texttt{8388608}    & \texttt{0x00800000} & Self-traced under full mask \texttt{2147483647} \\
+All calls           & -- & \texttt{2147483647} & \texttt{0x7fffffff} & Enables bits 0--30 (every syscall 1--23) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ============================================================================
+% 2. PART 1: USER-SIDE PLUMBING AND TRACE PROGRAM
+% ============================================================================
+\section{Part 1: User-Space Syscall Plumbing and \texttt{trace} Utility}
+
+\subsection{Syscall Number, Prototype, Stub, and Build Integration}
+To expose \texttt{trace()} to xv6 user programs, four user-space and shared header edits were applied in \texttt{\textasciitilde/xv6-riscv}:
+\begin{itemize}
+    \item \textbf{\texttt{kernel/syscall.h} (line 24)}: Assigned the next sequential syscall identifier right after \texttt{SYS\_sync}:
+\begin{lstlisting}[style=cstyle]
+#define SYS_sync   22
+#define SYS_trace 23
+\end{lstlisting}
+    \item \textbf{\texttt{user/user.h} (line 28)}: Declared \texttt{int trace(int);} alongside the other system call declarations after \texttt{int sync(void);}.
+    \item \textbf{\texttt{user/usys.pl} (line 46)}: Appended \texttt{entry("trace");}. During \texttt{make}, Perl emits the RISC-V assembly stub \texttt{.global trace}, \texttt{li a7, SYS\_trace}, \texttt{ecall}, \texttt{ret} into \texttt{user/usys.S}.
+    \item \textbf{\texttt{Makefile} (line 153)}: Registered \texttt{\$U/\_trace\textbackslash} in \texttt{UPROGS} right after \texttt{\$U/\_zombie\textbackslash} (preserving the required leading TAB character) so \texttt{mkfs} packages \texttt{/trace} into \texttt{fs.img}.
+\end{itemize}
+
+\subsection{Implementing \texttt{user/trace.c}}
+The user-space wrapper \texttt{user/trace.c} parses the decimal bitmask from \texttt{argv[1]}, activates tracing on its own process via \texttt{trace(atoi(argv[1]))}, and replaces its process image with the target command using \texttt{exec(argv[2], argv + 2)}. Because \texttt{exec()} reuses the caller's PID and \texttt{struct proc}, the newly loaded program runs with the requested \texttt{trace\_mask} already armed.
+
+\begin{lstlisting}[style=cstyle,caption={User-space wrapper \texttt{user/trace.c}}]
+#include "kernel/types.h"
+#include "kernel/stat.h"
+#include "user/user.h"
+
+int
+main(int argc, char *argv[])
+{
+  if (argc < 3) {
+    fprintf(2, "usage: trace mask command [args...]\n");
+    exit(1);
+  }
+  if (trace(atoi(argv[1])) < 0) {
+    fprintf(2, "trace: failed\n");
+    exit(1);
+  }
+  exec(argv[2], argv + 2);
+  fprintf(2, "trace: exec %s failed\n", argv[2]);
+  exit(1);
+}
+\end{lstlisting}
+
+Before adding the kernel handler in Part~2, invoking \texttt{trace 32 grep hello README} hits the fallback \texttt{else} branch in \texttt{syscall()}, printing \texttt{unknown sys call 23} and returning \texttt{-1} to user space (causing \texttt{trace: failed}). This serves as Check~1 confirming that the RISC-V \texttt{ecall} stub delivers syscall number \texttt{23} to the kernel.
+
+% ============================================================================
+% 3. PART 2: KERNEL IMPLEMENTATION
+% ============================================================================
+\section{Part 2: Kernel Implementation}
+
+\subsection{Extending \texttt{struct proc} and Inheriting Across \texttt{fork()}}
+Each process stores its active bitmask inside its \texttt{struct proc} descriptor in \texttt{kernel/proc.h} (line~104):
+\begin{lstlisting}[style=cstyle]
+  char name[16];               // Process name (debugging)
+  int trace_mask;              // which calls to print
+\end{lstlisting}
+
+To ensure that child processes spawned by a traced parent continue generating trace output, \texttt{kfork()} in \texttt{kernel/proc.c} (lines 290--291) copies the parent's \texttt{trace\_mask} into the child's \texttt{struct proc}:
+\begin{lstlisting}[style=cstyle]
+  safestrcpy(np->name, p->name, sizeof(p->name));
+  np->trace_mask = p->trace_mask;
+\end{lstlisting}
+Because the interactive shell runs with \texttt{trace\_mask = 0}, any unrelated command forked directly by \texttt{sh} still inherits \texttt{0} and remains quiet unless explicitly launched through \texttt{/trace}.
+
+\subsection{System Call Handler \texttt{sys\_trace}}
+In \texttt{kernel/sysproc.c} (lines 114--121), \texttt{sys\_trace()} fetches the integer mask argument from trapframe register \texttt{a0} via \texttt{argint(0, \&mask)} and saves it in the calling process structure:
+\begin{lstlisting}[style=cstyle,caption={Kernel handler \texttt{sys\_trace} in \texttt{kernel/sysproc.c}}]
+uint64
+sys_trace(void)
+{
+  int mask;
+  argint(0, &mask);
+  myproc()->trace_mask = mask;
+  return 0;
+}
+\end{lstlisting}
+
+\subsection{Dispatch Table, Syscall Names, and Post-Call Logging}
+In \texttt{kernel/syscall.c} (lines 106--168), we declared \texttt{extern uint64 sys\_trace(void);}, added \texttt{[SYS\_trace] = sys\_trace} to \texttt{syscalls[]}, populated the \texttt{syscallnames[]} array, and inserted the conditional \texttt{printk()} call right after \texttt{syscalls[num]()} saves its return value in \texttt{p->trapframe->a0}:
+
+\begin{lstlisting}[style=cstyle,caption={Syscall name table and dispatch logging in \texttt{kernel/syscall.c}}]
+static char *syscallnames[] = {
+  [SYS_fork] "fork",   [SYS_exit] "exit",     [SYS_wait] "wait",
+  [SYS_pipe] "pipe",   [SYS_read] "read",     [SYS_kill] "kill",
+  [SYS_exec] "exec",   [SYS_fstat] "fstat",   [SYS_chdir] "chdir",
+  [SYS_dup] "dup",     [SYS_getpid] "getpid", [SYS_sbrk] "sbrk",
+  [SYS_pause] "pause", [SYS_uptime] "uptime", [SYS_open] "open",
+  [SYS_write] "write", [SYS_mknod] "mknod",   [SYS_unlink] "unlink",
+  [SYS_link] "link",   [SYS_mkdir] "mkdir",   [SYS_close] "close",
+  [SYS_sync] "sync",   [SYS_trace] "trace",
+};
+
+void
+syscall(void)
+{
+  int num;
+  struct proc *p = myproc();
+
+  num = p->trapframe->a7;
+  if (num > 0 && num < NELEM(syscalls) && syscalls[num]) {
+    p->trapframe->a0 = syscalls[num]();
+    if ((p->trace_mask >> num) & 1)
+      printk("%d: syscall %s -> %ld\n", p->pid, syscallnames[num],
+             p->trapframe->a0);
+  } else {
+    printk("%d %s: unknown sys call %d\n", p->pid, p->name, num);
+    p->trapframe->a0 = -1;
+  }
+}
+\end{lstlisting}
+
+Two implementation details verified in \texttt{kernel/printk.c} matter for correctness:
+\begin{itemize}
+    \item \textbf{Kernel console helper}: This xv6 tree defines \texttt{printk()} inside \texttt{kernel/printk.c} (lines 70--109) rather than a kernel \texttt{printf()}.
+    \item \textbf{Signed 64-bit formatting (\texttt{\%ld})}: Register \texttt{p->trapframe->a0} holds a 64-bit \texttt{uint64}. Specifying \texttt{\%ld} invokes signed decimal formatting (\texttt{printint(..., 10, 1)}), ensuring errors such as \texttt{-1} display cleanly as \texttt{-1} instead of an unsigned 64-bit integer.
+\end{itemize}
+
+% ============================================================================
+% 4. PART 3: QEMU VERIFICATION AND TRACE ANALYSIS
+% ============================================================================
+\section{Part 3: QEMU Results and Observations}
+
+\subsection{Targeted Trace: \texttt{trace 32 grep hello README}}
+\begin{lstlisting}[style=consolestyle]
+$ trace 32 grep hello README
+3: syscall read -> 1023
+3: syscall read -> 965
+3: syscall read -> 453
+3: syscall read -> 0
+\end{lstlisting}
+
+Mask \texttt{32} ($2^5$) sets only bit~5, corresponding to \texttt{SYS\_read}. Process PID~3 (\texttt{grep}) reads \texttt{README} into its 1024-byte buffer (\texttt{buf[1024]} in \texttt{user/grep.c}, requesting \texttt{sizeof(buf) - m - 1} bytes per call where \texttt{m} is the length of any trailing incomplete line shifted forward). Across three non-empty chunks, it consumes $1023 + 965 + 453 = 2441$ bytes, followed by \texttt{0} indicating end-of-file.
+
+\subsection{Full Bitmask Trace: \texttt{trace 2147483647 grep hello README}}
+\begin{lstlisting}[style=consolestyle]
+$ trace 2147483647 grep hello README
+4: syscall trace -> 0
+4: syscall exec -> 3
+4: syscall open -> 3
+4: syscall read -> 1023
+4: syscall read -> 965
+4: syscall read -> 453
+4: syscall read -> 0
+4: syscall close -> 0
+\end{lstlisting}
+
+Mask \texttt{2147483647} (\texttt{0x7fffffff}) enables bits 0 through 30, tracing every implemented syscall of PID~4:
+\begin{enumerate}
+    \item \texttt{4: syscall trace -> 0}: Once \texttt{sys\_trace()} sets mask \texttt{2147483647}, \texttt{syscall()} inspects bit~23 (\texttt{SYS\_trace}) on return and logs \texttt{trace} returning \texttt{0}.
+    \item \texttt{4: syscall exec -> 3}: Replacing the image with \texttt{grep hello README} succeeds and places \texttt{argc} = \texttt{3} into \texttt{p->trapframe->a0}.
+    \item \texttt{4: syscall open -> 3}: Opening \texttt{README} allocates file descriptor \texttt{3}, since descriptors \texttt{0}, \texttt{1}, and \texttt{2} are already bound to standard input, output, and error.
+    \item \texttt{read} and \texttt{close -> 0}: After reading \texttt{README} to EOF, \texttt{grep} closes descriptor~3. Note that \texttt{exit} is absent because \texttt{sys\_exit()} terminates the process and never returns past line 160 (\texttt{p->trapframe->a0 = syscalls[num]();}) in \texttt{kernel/syscall.c}.
+\end{enumerate}
+
+\subsection{Process Inheritance: \texttt{trace 2 usertests forkforkfork}}
+Running \texttt{usertests forkforkfork} with bitmask \texttt{2} ($2^1$, \texttt{SYS\_fork}) verifies both mask propagation through \texttt{kfork()} and signed \texttt{-1} formatting once the kernel process table reaches \texttt{NPROC = 64} (\texttt{kernel/param.h}):
+
+\begin{lstlisting}[style=consolestyle]
+$ trace 2 usertests forkforkfork
+usertests starting
+test forkforkfork: 5: syscall fork -> 6
+6: syscall fork -> 7
+7: syscall fork -> 8
+7: syscall fork -> 9
+7: syscall fork -> 10
+8: syscall fork -> 11
+7: syscall fork -> 12
+7: syscall fork -> 13
+7: syscall fork -> 14
+8: syscall fork -> 15
+8: syscall fork -> 16
+7: syscall fork -> 17
+8: syscall fork -> 18
+8: syscall fork -> 19
+7: syscall fork -> 20
+9: syscall fork -> 21
+7: syscall fork -> 22
+8: syscall fork -> 23
+9: syscall fork -> 24
+9: syscall fork -> 25
+7: syscall fork -> 26
+8: syscall fork -> 27
+7: syscall fork -> 28
+8: syscall fork -> 29
+8: syscall fork -> 30
+8: syscall fork -> 31
+7: syscall fork -> 32
+8: syscall fork -> 33
+7: syscall fork -> 34
+8: syscall fork -> 35
+8: syscall fork -> 36
+7: syscall fork -> 37
+8: syscall fork -> 38
+7: syscall fork -> 39
+8: syscall fork -> 40
+7: syscall fork -> 41
+8: syscall fork -> 42
+7: syscall fork -> 43
+8: syscall fork -> 44
+7: syscall fork -> 45
+7: syscall fork -> 46
+8: syscall fork -> 47
+9: syscall fork -> 48
+7: syscall fork -> 49
+8: syscall fork -> 50
+7: syscall fork -> 51
+7: syscall fork -> 52
+8: syscall fork -> 53
+7: syscall fork -> 54
+8: syscall fork -> 55
+7: syscall fork -> 56
+9: syscall fork -> 57
+7: syscall fork -> 58
+7: syscall fork -> 59
+8: syscall fork -> 60
+7: syscall fork -> 61
+8: syscall fork -> 62
+7: syscall fork -> 63
+8: syscall fork -> 64
+7: syscall fork -> 65
+8: syscall fork -> 66
+7: syscall fork -> -1
+8: syscall fork -> -1
+9: syscall fork -> -1
+OK
+ALL TESTS PASSED
+\end{lstlisting}
+
+PID~5 (\texttt{usertests}) spawns PID~6, and child processes (PIDs~7, 8, and 9) inherit \texttt{trace\_mask = 2} from their parent without calling \texttt{trace()}, collectively forking PIDs~6 through 66 (61 successful \texttt{fork()} calls) until all 64 slots in \texttt{proc[NPROC]} are occupied and \texttt{allocproc()} returns \texttt{0}, producing three \texttt{syscall fork -> -1} failures before cleanup completes with \texttt{OK} and \texttt{ALL TESTS PASSED}.
+
+\subsection{Console Output Interleaving: \texttt{trace 65536 echo hi}}
+\begin{lstlisting}[style=consolestyle]
+$ trace 65536 echo hi
+hi67: syscall write -> 2
+
+67: syscall write -> 1
+$ 
+\end{lstlisting}
+
+Mask \texttt{65536} ($2^{16}$) traces \texttt{SYS\_write = 16}. Inspecting \texttt{user/echo.c} confirms that \texttt{echo hi} performs two separate \texttt{write} system calls: \texttt{write(1, "hi", 2)} followed by \texttt{write(1, "\textbackslash n", 1)}. Because \texttt{syscall()} calls \texttt{printk()} \emph{after} \texttt{syscalls[SYS\_write]()} finishes:
+\begin{enumerate}
+    \item During the first call, the UART console receives \texttt{"hi"} (with no newline), and immediately upon return \texttt{printk()} appends \texttt{67: syscall write -> 2\textbackslash n} on the same line.
+    \item Next, \texttt{echo} executes \texttt{write(1, "\textbackslash n", 1)}, outputting the newline (seen as the blank line), immediately followed by \texttt{67: syscall write -> 1\textbackslash n}.
+\end{enumerate}
+
+\subsection{Answers to Observation Questions (\texttt{notes.txt})}
+\begin{enumerate}
+    \item \textbf{Why does \texttt{trace 32 grep hello README} show only \texttt{read}, and not \texttt{open} or \texttt{close}?} \\
+    Mask \texttt{32} equals $2^5$, so only bit~5 (\texttt{SYS\_read = 5}) is set. \texttt{SYS\_open = 15} (bit~15) and \texttt{SYS\_close = 21} (bit~21) both test false under \texttt{(p->trace\_mask >{}> num) \& 1}.
+    \item \textbf{In \texttt{forkforkfork}, multiple different PIDs print lines. Which line of code from Part~2 makes that possible?} \\
+    \texttt{np->trace\_mask = p->trace\_mask;} inside \texttt{kfork()} in \texttt{kernel/proc.c} (line 291), which copies the parent's mask into each newly allocated child process.
+    \item \textbf{In \texttt{trace 65536 echo hi}, why is the trace line printed between \texttt{"hi"} and the new line? How many times does \texttt{echo} call \texttt{write}?} \\
+    \texttt{echo} calls \texttt{write} \textbf{2} times (\texttt{write(1, "hi", 2)} and \texttt{write(1, "\textbackslash n", 1)}). Since \texttt{syscall()} invokes \texttt{printk()} after \texttt{syscalls[num]()} executes, \texttt{"hi"} reaches the console before \texttt{67: syscall write -> 2\textbackslash n}, while the trailing \texttt{"\textbackslash n"} arrives in the second \texttt{write} call before \texttt{67: syscall write -> 1\textbackslash n}.
+    \item \textbf{Which mask traces both \texttt{open} (15) and \texttt{close} (21), and nothing else?} \\
+    Setting bits~15 and~21 yields:
+    \[
+        (1 \ll 15) \mid (1 \ll 21) = 2^{15} + 2^{21} = 32768 + 2097152 = \mathbf{2129920} \quad (\texttt{0x208000}).
+    \]
+\end{enumerate}
+
+% ============================================================================
+% 5. CONCLUSIONS
+% ============================================================================
+\section{Conclusions}
+
+\begin{enumerate}
+    \item \textbf{Complete User--Kernel Plumbing}: Implementing \texttt{trace(int)} connected all layers of the xv6 system call interface---from \texttt{SYS\_trace = 23} and RISC-V \texttt{ecall} stubs (\texttt{user/usys.pl}) through \texttt{user/trace.c}, \texttt{struct proc}, and dispatch inside \texttt{kernel/syscall.c}.
+    \item \textbf{Inheritance Across \texttt{fork()} and \texttt{exec()}}: Storing \texttt{trace\_mask} inside \texttt{struct proc} preserves tracing across \texttt{exec()}, while copying \texttt{trace\_mask} into the child struct inside \texttt{kfork()} automatically propagates tracing across multi-process workloads such as \texttt{usertests} (\texttt{forkforkfork}).
+    \item \textbf{Post-Syscall Logging Semantics}: Printing right after \texttt{syscalls[num]()} writes \texttt{p->trapframe->a0} captures both normal returns (byte counts, \texttt{argc}) and negative errors (\texttt{-1} via \texttt{\%ld}), while explaining why non-returning calls like \texttt{exit} do not log and why \texttt{echo}'s two \texttt{write} calls interleave with console output.
+    \item \textbf{Bitmask Filtering Efficiency}: Testing \texttt{(p->trace\_mask >{}> num) \& 1} incurs negligible $O(1)$ overhead per system call while enabling arbitrary syscall subsets (such as \texttt{2}, \texttt{32}, \texttt{65536}, \texttt{2129920}, or \texttt{2147483647}) dynamically.
+\end{enumerate}
+
+\end{document}

@@ -1,0 +1,87 @@
+$ trace 32 grep hello README
+3: syscall read -> 1023
+3: syscall read -> 965
+3: syscall read -> 453
+3: syscall read -> 0
+$ trace 2147483647 grep hello README
+4: syscall trace -> 0
+4: syscall exec -> 3
+4: syscall open -> 3
+4: syscall read -> 1023
+4: syscall read -> 965
+4: syscall read -> 453
+4: syscall read -> 0
+4: syscall close -> 0
+$ trace 2 usertests forkforkfork
+usertests starting
+test forkforkfork: 5: syscall fork -> 6
+6: syscall fork -> 7
+7: syscall fork -> 8
+7: syscall fork -> 9
+7: syscall fork -> 10
+8: syscall fork -> 11
+7: syscall fork -> 12
+7: syscall fork -> 13
+7: syscall fork -> 14
+8: syscall fork -> 15
+8: syscall fork -> 16
+7: syscall fork -> 17
+8: syscall fork -> 18
+8: syscall fork -> 19
+7: syscall fork -> 20
+9: syscall fork -> 21
+7: syscall fork -> 22
+8: syscall fork -> 23
+9: syscall fork -> 24
+9: syscall fork -> 25
+7: syscall fork -> 26
+8: syscall fork -> 27
+7: syscall fork -> 28
+8: syscall fork -> 29
+8: syscall fork -> 30
+8: syscall fork -> 31
+7: syscall fork -> 32
+8: syscall fork -> 33
+7: syscall fork -> 34
+8: syscall fork -> 35
+8: syscall fork -> 36
+7: syscall fork -> 37
+8: syscall fork -> 38
+7: syscall fork -> 39
+8: syscall fork -> 40
+7: syscall fork -> 41
+8: syscall fork -> 42
+7: syscall fork -> 43
+8: syscall fork -> 44
+7: syscall fork -> 45
+7: syscall fork -> 46
+8: syscall fork -> 47
+9: syscall fork -> 48
+7: syscall fork -> 49
+8: syscall fork -> 50
+7: syscall fork -> 51
+7: syscall fork -> 52
+8: syscall fork -> 53
+7: syscall fork -> 54
+8: syscall fork -> 55
+7: syscall fork -> 56
+9: syscall fork -> 57
+7: syscall fork -> 58
+7: syscall fork -> 59
+8: syscall fork -> 60
+7: syscall fork -> 61
+8: syscall fork -> 62
+7: syscall fork -> 63
+8: syscall fork -> 64
+7: syscall fork -> 65
+8: syscall fork -> 66
+7: syscall fork -> -1
+8: syscall fork -> -1
+9: syscall fork -> -1
+OK
+ALL TESTS PASSED
+$ trace 65536 echo hi
+hi67: syscall write -> 2
+
+67: syscall write -> 1
+$ 

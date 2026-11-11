@@ -1,0 +1,24 @@
+Lab 10 - Add a System Call: trace (xv6) - Observation Notes
+
+1. In `trace 32 grep hello README`, why do you see only `read`, and not `open` or `close`?
+Answer: Because the bitmask 32 equals 2^5 (1 << 5), which enables only bit 5 (SYS_read = 5).
+In kernel/syscall.h, SYS_open = 15 (bit 15, mask 32768) and SYS_close = 21 (bit 21, mask 2097152).
+Since bits 15 and 21 are both 0 in mask 32, `(p->trace_mask >> num) & 1` evaluates to 0 for `open`
+and `close`, so syscall() does not print trace lines for them.
+
+2. In `forkforkfork`, three different pids print lines. Which line of code from Part 2 makes that possible?
+Answer: `np->trace_mask = p->trace_mask;` inside `kfork()` in `kernel/proc.c` (line 291).
+When a parent process calls fork(), kfork() copies its trace bitmask into the newly allocated
+child process `np`, allowing children (and their children) to inherit tracing automatically.
+
+3. In `trace 65536 echo hi`, the trace line is printed between "hi" and the new line. Why? (How many times does echo call write?)
+Answer: `echo` calls `write()` twice (verified in `user/echo.c`): first `write(1, "hi", 2)` for the
+argument text, and then `write(1, "\n", 1)` for the trailing newline.
+In `kernel/syscall.c`, `syscall()` prints the trace line AFTER `syscalls[num]()` returns (`p->trapframe->a0 = syscalls[num]()`).
+Thus, during the first `write`, "hi" is written to the console before `67: syscall write -> 2\n` is printed
+by printk(). Next, `echo` executes the second `write(1, "\n", 1)`, emitting the newline (producing the
+blank line in the output) before `67: syscall write -> 1\n` is printed.
+
+4. Which mask traces both `open` (15) and `close` (21), and nothing else?
+Answer: 2129920 (2^15 + 2^21 = 32768 + 2097152, or 0x208000 in hexadecimal).
+
