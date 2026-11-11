@@ -1,0 +1,16 @@
+Lab 13 - Semaphores in Your Own Kernel (xv6) - Observation Notes
+
+1. Without the lock, why do the letters mix? (How many system calls does one line cost?)
+Answer: Each call to `lines()` in `user/mix.c` prints a 30-character string plus `'\n'` (31 characters total) using a loop of single-byte `write(1, p, 1)` calls (`for (char *p = s; *p; p++) write(1, p, 1);`), so ONE line costs 31 `write()` system calls rather than one atomic write. Without `sem_down(3)`/`sem_up(3)`, QEMU runs xv6 with 3 CPUs (`CPUS := 3` in Makefile), so parent (`A...`) and child (`b...`) execute simultaneously on different CPUs (and can also be preempted between `write()` syscalls), interleaving individual 1-byte `write()` calls onto the shared console.
+
+2. With the lock every line is whole. Which two lines of mix.c make one line a critical section?
+Answer: `sem_down(3);` (before the `for (char *p = s; *p; p++)` character loop) and `sem_up(3);` (after the loop) inside `lines()` in `user/mix.c` (guarded by `if (uselock)`). Since semaphore 3 is initialized to 1 (`sem_init(3, 1)`), all 31 `write(1, p, 1)` calls of one line finish before the other process can begin its next line.
+
+3. In sem_down the test is "while (s->value == 0)", not "if". Why can a process wake up and still find 0?
+Answer: `sem_up()` calls `wakeup(s)`, which wakes EVERY process sleeping on `s` (`for (p = proc; p < &proc[NPROC]; p++) ... p->state = RUNNABLE;` in `kernel/proc.c`). When multiple processes are waiting, the first one to resume re-acquires `s->lock` and decrements `s->value` back from 1 to 0; when a second woken process acquires `s->lock`, `s->value` is already 0 again (likewise, a newly running caller on another CPU can acquire the unit first, or `kkill()` can wake a sleeping process without calling `sem_up()`). Re-testing in a `while` loop makes the resumed process re-check `s->value` and sleep again instead of driving `s->value` negative.
+
+4. sem_down calls release(&s->lock) BEFORE sleep(). What would go wrong if it slept holding the spinlock?
+Answer: Two fatal bugs happen:
+(a) Immediate kernel panic (`panic("sched locks")`): `sleep()` acquires `p->lock` and calls `sched()` (`kernel/proc.c:488`), which checks `if (mycpu()->noff != 1) panic("sched locks");`. Holding both `s->lock` and `p->lock` makes `mycpu()->noff == 2`, triggering a panic immediately.
+(b) Deadlock/hang: `acquire(&s->lock)` disables interrupts (`push_off()`) and spins waiting for `s->lock`. Any process calling `sem_up()` must execute `acquire(&s->lock)` before it can increment `s->value` and call `wakeup(s)`; if the sleeping process still held `s->lock`, no caller of `sem_up()` could ever acquire the spinlock to wake it up.
+

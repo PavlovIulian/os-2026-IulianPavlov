@@ -1,0 +1,78 @@
+=== Check 1: Part 1 before kernel side (sem_init/sem_down/sem_up unimplemented) ===
+$ semtest
+3 semtest: unknown sys call 24
+4 semtest: unknown sys call 25
+child: I ran after the parent
+parent: done, I let the child go
+3 semtest: unknown sys call 26
+3 semtest: unknown sys call 24
+3 semtest: unknown sys call 24
+3 semtest: unknown sys call 25
+5 semtest: unknown sys call 25
+pi npongg  11
+
+5 semtest: unknown sys call 26
+5 semtest: unknown sys call 25
+ 3 semtest: unknown sys call 26
+3 semtest: unknown sys call 25
+ppoinngg  22
+
+5 semtest: unknown sys call 26
+3 semtest: unknown sys call 26
+5 semtest: unknown sys call 25
+3 semtest: unknown sys call 25
+ ppoinngg  33
+
+5 semtest: unknown sys call 26
+3 semtest: unknown sys call 26
+semtest: OK
+
+=== Check 2 & Part 3: With kernel/sem.c wired up ===
+$ semtest
+parent: done, I let the child go
+child: I ran after the parent
+ping 1
+ pong 1
+ping 2
+ pong 2
+ping 3
+ pong 3
+semtest: OK
+$ mix
+AAAAAAAAAbAbbbbAbbbAbAbAbAbAbAbAbAbAbAbAbAbbAbAbAbAbAAbAb
+bAbAbA
+AbAbAbAAbAbbbAAbAbAbAbbAbbAbAbAbAbAbAbAbAbAbAbAAAbAbAb
+bbAbA
+AbAbAbAbbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAAbAbAbAbAb
+bAbA
+AbAAAbAbAbAbAAAAbAAbbbAbbbAbAbAbAbAbAAbAAbAbAAAbAb
+bAbAbAbAbAbAbAbA
+AbAbAbAbAbAbbbAbAbAbAbAbAbAbAbAbAAbAbAbAbbAbA
+bbbbbbb
+$ mix
+AAAAAbAbAbAbAbAbAbAbAbAbAbAbAbbAbAbAbAbAbAbAbAbAbAbAbbAA
+bAAAAAbAbAAAAAAbA
+bbbAbbbAAbAbAbbAbAbAbAbAbAbAbAbAbAbAbAb
+bAbAbAbAbAbAbAbA
+AbAbAbAbAbAbAbAbAbAbAAbAAbbAbAbAbAbAbAbAbAb
+bAbAbAbAbAbAbAbbA
+AbAAbAbbbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAb
+bAbAbAbAbAbAbA
+AbAbAbAbAbAbAbAbAbAbAbAbAbAAbbbAbbAAbAbAbAbAbAbbb
+bbbb
+$ mix lock
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+$ trydown
+first trydown: 0
+second trydown (at 0): -1
+after sem_up, third trydown: 0
+

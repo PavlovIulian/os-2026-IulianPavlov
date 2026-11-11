@@ -1,0 +1,359 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{textcomp}
+\usepackage{newunicodechar}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{tabularx}
+\usepackage{array}
+
+% Adjust header height for fancyhdr
+\setlength{\headheight}{15pt}
+\addtolength{\topmargin}{-3pt}
+
+% Romanian Unicode support for standard pdflatex / tectonic
+\newunicodechar{Ă}{\v{A}}
+\newunicodechar{ă}{\v{a}}
+\newunicodechar{Â}{\^{A}}
+\newunicodechar{â}{\^{a}}
+\newunicodechar{Î}{\^{I}}
+\newunicodechar{î}{\^{i}}
+\newunicodechar{Ș}{\c{S}}
+\newunicodechar{ș}{\c{s}}
+\newunicodechar{Ț}{\c{T}}
+\newunicodechar{ț}{\c{t}}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=cyan,
+    citecolor=blue
+}
+
+% Colors for code listings
+\definecolor{codebg}{gray}{0.96}
+\definecolor{codegreen}{rgb}{0.13,0.55,0.13}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{codeblue}{rgb}{0.05,0.25,0.70}
+
+\lstset{
+    backgroundcolor=\color{codebg},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    breakatwhitespace=true,
+    frame=single,
+    rulecolor=\color{gray!40},
+    keepspaces=true,
+    showstringspaces=false,
+    upquote=true,
+    columns=fullflexible,
+    tabsize=2
+}
+
+\lstdefinestyle{cstyle}{
+    language=C,
+    commentstyle=\color{codegreen}\itshape,
+    keywordstyle=\color{codeblue}\bfseries,
+    stringstyle=\color{codepurple},
+    numbers=left,
+    numbersep=7pt,
+    numberstyle=\tiny\color{codegray},
+    stepnumber=1
+}
+
+\lstdefinestyle{bashstyle}{
+    language=bash,
+    commentstyle=\color{codegreen}\itshape,
+    keywordstyle=\color{codeblue}\bfseries,
+    stringstyle=\color{codepurple},
+    numbers=left,
+    numbersep=7pt,
+    numberstyle=\tiny\color{codegray},
+    stepnumber=1
+}
+
+\lstdefinestyle{consolestyle}{
+    backgroundcolor=\color{codebg},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    frame=single,
+    rulecolor=\color{gray!40},
+    numbers=none
+}
+
+% Header and Footer
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{Operating Systems -- Lab 13}
+\rhead{Iulian Pavlov, FAF-241}
+\cfoot{\thepage}
+
+\begin{document}
+
+% ============================================================================
+% TITLE PAGE
+% ============================================================================
+\hypersetup{pageanchor=false}
+\begin{titlepage}
+\begin{center}
+    \includegraphics[width=0.3\textwidth]{logo.png} \\[0.2cm]
+
+    \textbf{MINISTRY OF EDUCATION, CULTURE AND RESEARCH \\ OF THE REPUBLIC OF MOLDOVA} \\[0.3cm]
+
+    \textbf{Technical University of Moldova \\ Faculty of Computers, Informatics and Microelectronics \\ Department of Software and Automation Engineering} \\[1.8cm]
+
+    \textbf{Iulian Pavlov, FAF-241}\\[0.5cm]
+
+    \Huge \textbf{Report} \\[0.5cm]
+
+    \large Laboratory work nr. 13 \\[0.5cm]
+
+    \textbf{\Large Semaphores in Your Own Kernel} \\[0.3cm]
+    \normalsize Course: Operating Systems (Track B: build your own small OS (xv6)) \\[2.2cm]
+
+    \begin{flushright}
+        \textit{Checked by:} \\
+        \textbf{Reițman Patricia}, \textit{University Assistant} \\
+        Department of Software and Automation Engineering, \\
+        FCIM Faculty, UTM
+    \end{flushright}
+    \vfill
+
+    Chișinău -- 2026
+\end{center}
+\end{titlepage}
+\hypersetup{pageanchor=true}
+
+\pagenumbering{roman}
+\newpage
+\tableofcontents
+\newpage
+\pagenumbering{arabic}
+
+% ============================================================================
+% 1. THEORETICAL BACKGROUND & OBJECTIVES
+% ============================================================================
+\section{Theoretical Background and Objectives}
+
+\subsection{Laboratory Objectives and Scope}
+Whereas Laboratories No.~11 and~12 exercised POSIX semaphores from user space on Linux, Laboratory Work No.~13 moves inside the \textbf{xv6-riscv} kernel to build counting semaphores from scratch. Each semaphore is simply an integer counter protected by a per-semaphore kernel spinlock and paired with sleep/wakeup process scheduling so blocked waiters yield the CPU cleanly.
+
+The objectives of Laboratory Work No.~13 are:
+\begin{itemize}
+    \item \textbf{User-Space Syscall Plumbing}: Assigning syscall numbers \texttt{24..26} (\texttt{SYS\_\allowbreak sem\_\allowbreak init}, \texttt{SYS\_\allowbreak sem\_\allowbreak down}, \texttt{SYS\_\allowbreak sem\_\allowbreak up}) alongside \texttt{SYS\_\allowbreak trace} (\texttt{23}), adding prototypes in \texttt{user/\allowbreak user.h}, emitting RISC-V \texttt{ecall} stubs in \texttt{user/\allowbreak usys.pl}, adding \texttt{semtest.c} and \texttt{mix.c}, and verifying Check~1.
+    \item \textbf{Kernel Semaphore Table (\texttt{kernel/\allowbreak sem.c})}: Implementing \texttt{NSEM = 8} semaphores protected by spinlocks and the two-step calls \texttt{sleep\_\allowbreak prepare(s)}, \texttt{release(\allowbreak\&s->\allowbreak lock)}, and \texttt{sleep()}.
+    \item \textbf{Verification and Mutual Exclusion}: Passing both ordering and ping-pong tests in \texttt{semtest}, contrasting unlocked vs.\ semaphore-locked output in \texttt{mix} across 3 QEMU CPUs, implementing optional \texttt{sem\_\allowbreak trydown} (syscall \texttt{27}), and committing the working tree to git.
+\end{itemize}
+
+\subsection{Two-Step Sleep Protocol in Our xv6 Kernel}
+Unlike textbook xv6, which passes the condition lock directly to \texttt{sleep(chan, lk)}, this xv6 tree (\texttt{kernel/\allowbreak proc.c}) separates channel registration from parking the thread:
+\begin{enumerate}
+    \item \texttt{sleep\_\allowbreak prepare(s)} acquires \texttt{p->lock}, sets \texttt{p->chan = s}, and releases \texttt{p->lock} \emph{while \texttt{s->lock} is still held}, so no \texttt{wakeup(s)} can slip past unseen before registration.
+    \item \texttt{release(\&s->lock)} releases the semaphore spinlock so another hart can call \texttt{sem\_\allowbreak up()} and \texttt{mycpu()->noff} drops from \texttt{1} back to \texttt{0}.
+    \item \texttt{sleep()} re-acquires \texttt{p->lock} and checks \texttt{if (p->chan != 0)}. If \texttt{wakeup(s)} arrived in the window between steps~1 and~3, \texttt{wakeup()} already cleared \texttt{p->chan = 0}, so \texttt{sleep()} returns immediately without blocking; otherwise \texttt{sleep()} sets \texttt{p->state = SLEEPING} and calls \texttt{sched()}.
+\end{enumerate}
+
+Table~\ref{tab:syscalls} summarizes all new semaphore system calls registered in \texttt{kernel/\allowbreak syscall.h}.
+
+\begin{table}[H]
+\centering
+\caption{Semaphore System Calls Implemented in Lab 13}
+\label{tab:syscalls}
+\begin{tabularx}{\textwidth}{l c l >{\raggedright\arraybackslash}X}
+\toprule
+\textbf{Constant} & \textbf{Number} & \textbf{User Prototype} & \textbf{Kernel Behavior} \\
+\midrule
+\texttt{SYS\_\allowbreak sem\_\allowbreak init} & 24 & \texttt{int sem\_\allowbreak init(int, int);} & Initializes \texttt{sems[id].value = val} (if valid) \\
+\texttt{SYS\_\allowbreak sem\_\allowbreak down} & 25 & \texttt{int sem\_\allowbreak down(int);} & Decrements if \texttt{> 0}, or sleeps via \texttt{sleep\_\allowbreak prepare/sleep} \\
+\texttt{SYS\_\allowbreak sem\_\allowbreak up} & 26 & \texttt{int sem\_\allowbreak up(int);} & Increments \texttt{value} and calls \texttt{wakeup(s)} \\
+\texttt{SYS\_\allowbreak sem\_\allowbreak trydown} & 27 & \texttt{int sem\_\allowbreak trydown(int);} & Optional: decrements if \texttt{> 0}, else returns \texttt{-1} at once \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ============================================================================
+% 2. PART 1: USER-SIDE PLUMBING AND CHECK 1
+% ============================================================================
+\section{Part 1: User-Side Plumbing and Test Programs}
+
+\subsection{Syscall Numbers, Prototypes, Assembly Stubs, and Makefile}
+Keeping \texttt{SYS\_\allowbreak sync = 22} and \texttt{SYS\_\allowbreak trace = 23} intact from Lab~10, the user-space plumbing adds:
+\begin{itemize}
+    \item \textbf{\texttt{kernel/\allowbreak syscall.h}}: Defines \texttt{SYS\_\allowbreak sem\_\allowbreak init} (\texttt{24}), \texttt{SYS\_\allowbreak sem\_\allowbreak down} (\texttt{25}), \texttt{SYS\_\allowbreak sem\_\allowbreak up} (\texttt{26}), and optional \texttt{SYS\_\allowbreak sem\_\allowbreak trydown} (\texttt{27}).
+    \item \textbf{\texttt{user/\allowbreak user.h} \& \texttt{user/\allowbreak usys.pl}}: Declares the C wrappers and adds \texttt{entry("sem\_\allowbreak init")}, \texttt{entry("sem\_\allowbreak down")}, \texttt{entry("sem\_\allowbreak up")}, and \texttt{entry("sem\_\allowbreak trydown")} so \texttt{perl user/\allowbreak usys.pl} emits RISC-V \texttt{ecall} stubs into \texttt{user/\allowbreak usys.S}.
+    \item \textbf{\texttt{Makefile} (\texttt{UPROGS})}: Adds \texttt{\$U/\_semtest\textbackslash}, \texttt{\$U/\_mix\textbackslash}, and optional \texttt{\$U/\_trydown\textbackslash} directly after \texttt{\$U/\_zombie\textbackslash}.
+\end{itemize}
+
+\subsection{Test Programs: \texttt{user/semtest.c} and \texttt{user/mix.c}}
+\lstinputlisting[style=cstyle, caption={Ordering and ping-pong test suite (\texttt{user/semtest.c})}]{semtest.c}
+
+\newpage
+\lstinputlisting[style=cstyle, caption={Concurrent console write test without and with semaphore 3 (\texttt{user/mix.c})}]{mix.c}
+
+\newpage
+\subsection{Check 1: Behavior Before Kernel-Side Semaphores}
+Building and booting QEMU after Part~1 (before wiring \texttt{kernel/\allowbreak sem.c}) confirmed that the stubs reached kernel trap dispatch:
+\begin{lstlisting}[style=consolestyle, caption={Observed Check 1 output before implementing kernel semaphores}]
+$ semtest
+3 semtest: unknown sys call 24
+4 semtest: unknown sys call 25
+child: I ran after the parent
+parent: done, I let the child go
+3 semtest: unknown sys call 26
+3 semtest: unknown sys call 24
+...
+pi npongg  11
+...
+ppoinngg  22
+...
+ ppoinngg  33
+...
+semtest: OK
+\end{lstlisting}
+As expected for Check~1, unknown syscalls \texttt{24} and \texttt{25} returned \texttt{-1} immediately, so the child printed \texttt{child: I ran after the parent} \emph{before} the parent finished \texttt{pause(10)}, and Test~2 interleaved \texttt{pi npongg 11} concurrently.
+
+% ============================================================================
+% 3. PART 2: THE KERNEL SIDE
+% ============================================================================
+\newpage
+\section{Part 2: Kernel Semaphore Implementation}
+
+\subsection{Semaphore Table and Handlers (\texttt{kernel/sem.c})}
+\texttt{kernel/\allowbreak sem.c} allocates a static table of \texttt{NSEM = 8} \texttt{struct sem} entries shared globally across all processes. Zero-initialization in BSS starts every \texttt{spinlock} unlocked. A small shared helper \texttt{fetch\_\allowbreak sem()} extracts argument~\texttt{0} and bounds-checks \texttt{0 <= id < NSEM} across all four handlers.
+
+\lstinputlisting[style=cstyle, basicstyle=\ttfamily\scriptsize, caption={Kernel counting semaphores with optional \texttt{sem\_trydown} (\texttt{kernel/sem.c})}]{sem.c}
+
+\subsection{Kernel Makefile, Dispatch Table, and Git Commit}
+To compile \texttt{kernel/\allowbreak sem.c} into the kernel binary and register all syscall handlers:
+\begin{itemize}
+    \item \textbf{\texttt{Makefile} (\texttt{OBJS})}: Inserted \texttt{\$K/\allowbreak sem.o \textbackslash} directly after \texttt{\$K/\allowbreak sysproc.o \textbackslash}.
+    \item \textbf{\texttt{kernel/\allowbreak syscall.c}}: Declared \texttt{sys\_\allowbreak sem\_\allowbreak *()} prototypes, mapped \texttt{SYS\_\allowbreak sem\_\allowbreak init} (\texttt{24}) through \texttt{SYS\_\allowbreak sem\_\allowbreak trydown} (\texttt{27}) in \texttt{syscalls[]}, and added matching names in \texttt{syscallnames[]} so Lab~10's \texttt{trace} facility never reads out of bounds.
+    \item \textbf{Git Commit (\texttt{\textasciitilde/xv6-riscv})}: Committed the completed working tree to branch \texttt{riscv} at commit \texttt{aae203a}.
+\end{itemize}
+
+\newpage
+\subsection{Check 2: Verified Ordering and Ping-Pong (\texttt{semtest})}
+After rebuilding \texttt{kernel/\allowbreak kernel} and \texttt{fs.img} cleanly with \texttt{make}, running \texttt{semtest} inside 3-CPU QEMU produced:
+\begin{lstlisting}[style=consolestyle, caption={Observed Check 2 output with kernel semaphores enabled}]
+$ semtest
+parent: done, I let the child go
+child: I ran after the parent
+ping 1
+ pong 1
+ping 2
+ pong 2
+ping 3
+ pong 3
+semtest: OK
+\end{lstlisting}
+Even though the parent sleeps for \texttt{10} ticks via \texttt{pause(10)}, the child genuinely blocks in \texttt{sys\_\allowbreak sem\_\allowbreak down(0)} until the parent calls \texttt{sem\_\allowbreak up(0)}, and \texttt{ping}/\texttt{pong} alternate in lockstep across all three iterations.
+
+% ============================================================================
+% 4. PART 3: MIX, OPTIONAL TRYDOWN, AND OBSERVE ANSWERS
+% ============================================================================
+\section{Part 3: \texttt{mix}, \texttt{sem\_trydown}, and Analysis}
+
+\subsection{Running \texttt{mix} Without and With Semaphore Locking}
+Running \texttt{mix} twice without arguments lets parent and child interleave concurrently on 3~CPUs; passing an argument (\texttt{mix lock}) sets \texttt{uselock = 1} and wraps each 31-byte line in \texttt{sem\_\allowbreak down(3)} / \texttt{sem\_\allowbreak up(3)}:
+
+\begin{lstlisting}[style=consolestyle, caption={Observed QEMU outputs of \texttt{mix} without locking (two runs)}]
+$ mix
+AAAAAAAAAbAbbbbAbbbAbAbAbAbAbAbAbAbAbAbAbAbbAbAbAbAbAAbAb
+bAbAbA
+AbAbAbAAbAbbbAAbAbAbAbbAbbAbAbAbAbAbAbAbAbAbAbAAAbAbAb
+bbAbA
+AbAbAbAbbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAAbAbAbAbAb
+bAbA
+AbAAAbAbAbAbAAAAbAAbbbAbbbAbAbAbAbAbAAbAAbAbAAAbAb
+bAbAbAbAbAbAbAbA
+AbAbAbAbAbAbbbAbAbAbAbAbAbAbAbAbAAbAbAbAbbAbA
+bbbbbbb
+$ mix
+AAAAAbAbAbAbAbAbAbAbAbAbAbAbAbbAbAbAbAbAbAbAbAbAbAbAbbAA
+bAAAAAbAbAAAAAAbA
+bbbAbbbAAbAbAbbAbAbAbAbAbAbAbAbAbAbAbAb
+bAbAbAbAbAbAbAbA
+AbAbAbAbAbAbAbAbAbAbAAbAAbbAbAbAbAbAbAbAbAb
+bAbAbAbAbAbAbAbbA
+AbAAbAbbbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAb
+bAbAbAbAbAbAbA
+AbAbAbAbAbAbAbAbAbAbAbAbAbAAbbbAbbAAbAbAbAbAbAbbb
+bbbb
+\end{lstlisting}
+
+\newpage
+
+\begin{lstlisting}[style=consolestyle, caption={Observed QEMU output of \texttt{mix lock} (semaphore 3 initialized to 1)}]
+$ mix lock
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+\end{lstlisting}
+
+\subsection{Optional Extension: \texttt{sem\_trydown} (Syscall 27)}
+As specified in the optional exercise, \texttt{sys\_\allowbreak sem\_\allowbreak trydown()} (\texttt{SYS\_\allowbreak sem\_\allowbreak trydown = 27}) acquires \texttt{s->lock}, returns \texttt{-1} immediately when \texttt{s->value == 0} instead of calling \texttt{sleep()}, and decrements/returns \texttt{0} when a unit is available. A dedicated user program \texttt{user/\allowbreak trydown.c} verifies both outcomes:
+
+\lstinputlisting[style=cstyle, caption={Non-blocking semaphore test program (\texttt{user/trydown.c})}]{trydown.c}
+
+\begin{lstlisting}[style=consolestyle, caption={Observed QEMU output of optional \texttt{trydown}}]
+$ trydown
+first trydown: 0
+second trydown (at 0): -1
+after sem_up, third trydown: 0
+\end{lstlisting}
+
+\newpage
+\subsection{Observe Answers (Saved in \texttt{notes.txt})}
+\begin{enumerate}
+    \item \textbf{Without the lock, why do the letters mix? (How many system calls does one line cost?)} \\
+    Each call to \texttt{lines()} in \texttt{user/\allowbreak mix.c} prints \texttt{30} identical letters plus \texttt{'\textbackslash n'} (\texttt{31} characters total) one character at a time via \texttt{for (char *p = s; *p; p++) write(1, p, 1);}. Therefore, \textbf{one line costs \texttt{31} \texttt{write()} system calls}, not a single atomic write. When \texttt{mix} runs without arguments, QEMU boots xv6 with \texttt{CPUS := 3}, allowing parent and child processes to run truly in parallel across separate CPUs (and interleave across kernel/timer transitions between individual syscalls), mixing their 1-byte console writes unpredictably.
+
+    \item \textbf{With the lock every line is whole. Which two lines of \texttt{mix.c} make one line a critical section?} \\
+    Inside \texttt{lines()} (\texttt{user/\allowbreak mix.c}), \texttt{sem\_\allowbreak down(3);} (immediately before the \texttt{for (char *p = s; *p; p++)} loop, under \texttt{if (uselock)}) and \texttt{sem\_\allowbreak up(3);} (immediately after the loop, under \texttt{if (uselock)}) bracket all \texttt{31} character writes of one line into a single mutually exclusive critical section.
+
+    \item \textbf{In \texttt{sem\_down} the test is \texttt{while (s->value == 0)}, not \texttt{if}. Why can a process wake up and still find \texttt{0}?} \\
+    Inside \texttt{sys\_\allowbreak sem\_\allowbreak up()}, \texttt{wakeup(s)} scans \texttt{proc[]} (\texttt{kernel/\allowbreak proc.c}) and marks \emph{every} process sleeping on channel \texttt{s} as \texttt{RUNNABLE}, not just one waiter. If multiple waiters wake together, the first woken process to re-acquire \texttt{s->lock} exits the loop and decrements \texttt{s->value} back from \texttt{1} to \texttt{0}, so any second woken process observes \texttt{s->value == 0} when it next acquires \texttt{s->lock}. Likewise, an already-running process on another hart can claim the unit first ("barging"), or \texttt{kkill()} can mark a sleeping process \texttt{RUNNABLE} without changing \texttt{s->value}. Looping with \texttt{while} guarantees \texttt{s->value} never drops below \texttt{0}.
+
+    \item \textbf{\texttt{sem\_down} calls \texttt{release(\&s->lock)} BEFORE \texttt{sleep()}. What would go wrong if it slept holding the spinlock?} \\
+    Two catastrophic failures occur:
+    \begin{itemize}
+        \item \textbf{Immediate kernel panic (\texttt{sched locks}):} \texttt{sleep()} acquires \texttt{p->lock} and calls \texttt{sched()} (\texttt{kernel/\allowbreak proc.c}), which enforces \texttt{if (mycpu()->noff != 1) panic("sched locks");}. Holding both \texttt{s->lock} and \texttt{p->lock} pushes \texttt{noff} to \texttt{2}, triggering an instant kernel panic.
+        \item \textbf{Deadlock / spinlock stall:} Spinlocks disable interrupts via \texttt{push\_\allowbreak off()} (\texttt{kernel/\allowbreak spinlock.c}) and must be released before sleeping. Even without the \texttt{panic()} check, any caller of \texttt{sem\_\allowbreak up()} must run \texttt{acquire(\&s->lock)} before incrementing \texttt{s->value} and calling \texttt{wakeup(s)}; if the sleeping process retained \texttt{s->lock}, no \texttt{sem\_\allowbreak up()} caller on any CPU could ever acquire \texttt{s->lock} to wake it up.
+    \end{itemize}
+\end{enumerate}
+
+% ============================================================================
+% 5. CONCLUSIONS
+% ============================================================================
+\newpage
+\section{Conclusions}
+
+Implementing semaphores inside \textbf{xv6-riscv} connects every user-space abstraction practiced in Labs~11 and~12 down to kernel hardware and scheduler primitives:
+\begin{itemize}
+    \item A semaphore reduces cleanly to three core pieces (\texttt{kernel/\allowbreak sem.c}): a counter \texttt{value}, a protecting spinlock \texttt{lock}, and sleeping/waking via \texttt{sleep\_\allowbreak prepare(s)}, \texttt{sleep()}, and \texttt{wakeup(s)}.
+    \item \texttt{semtest} verifies both one-shot parent-before-child ordering and strict multi-round ping-pong alternation (\texttt{semtest: OK}), replacing CPU-wasting busy-waiting with true blocking in \texttt{SLEEPING} state.
+    \item \texttt{mix} demonstrates how \texttt{31} separate 1-byte \texttt{write()} calls per line race across 3~CPUs without locking, while wrapping the loop between \texttt{sem\_\allowbreak down(3)} and \texttt{sem\_\allowbreak up(3)} keeps every 30-character line intact.
+    \item Re-checking \texttt{while (s->value == 0)} after waking prevents negative counts under thundering-herd wakeups, and releasing \texttt{s->lock} before \texttt{sleep()} preserves xv6's \texttt{mycpu()->noff == 1} scheduler invariant and prevents deadlock against \texttt{sem\_\allowbreak up()}.
+\end{itemize}
+
+\end{document}

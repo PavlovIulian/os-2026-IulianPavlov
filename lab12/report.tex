@@ -1,0 +1,415 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{textcomp}
+\usepackage{newunicodechar}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{tabularx}
+\usepackage{array}
+
+% Adjust header height for fancyhdr
+\setlength{\headheight}{15pt}
+\addtolength{\topmargin}{-3pt}
+
+% Romanian Unicode support for standard pdflatex / tectonic
+\newunicodechar{Ă}{\v{A}}
+\newunicodechar{ă}{\v{a}}
+\newunicodechar{Â}{\^{A}}
+\newunicodechar{â}{\^{a}}
+\newunicodechar{Î}{\^{I}}
+\newunicodechar{î}{\^{i}}
+\newunicodechar{Ș}{\c{S}}
+\newunicodechar{ș}{\c{s}}
+\newunicodechar{Ț}{\c{T}}
+\newunicodechar{ț}{\c{t}}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=cyan,
+    citecolor=blue
+}
+
+% Colors for code listings
+\definecolor{codebg}{gray}{0.96}
+\definecolor{codegreen}{rgb}{0.13,0.55,0.13}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{codeblue}{rgb}{0.05,0.25,0.70}
+
+\lstset{
+    backgroundcolor=\color{codebg},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    breakatwhitespace=true,
+    frame=single,
+    rulecolor=\color{gray!40},
+    keepspaces=true,
+    showstringspaces=false,
+    upquote=true,
+    columns=fullflexible,
+    tabsize=2
+}
+
+\lstdefinestyle{cstyle}{
+    language=C,
+    commentstyle=\color{codegreen}\itshape,
+    keywordstyle=\color{codeblue}\bfseries,
+    stringstyle=\color{codepurple},
+    numbers=left,
+    numbersep=7pt,
+    numberstyle=\tiny\color{codegray},
+    stepnumber=1
+}
+
+\lstdefinestyle{bashstyle}{
+    language=bash,
+    commentstyle=\color{codegreen}\itshape,
+    keywordstyle=\color{codeblue}\bfseries,
+    stringstyle=\color{codepurple},
+    numbers=left,
+    numbersep=7pt,
+    numberstyle=\tiny\color{codegray},
+    stepnumber=1
+}
+
+\lstdefinestyle{consolestyle}{
+    backgroundcolor=\color{codebg},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    frame=single,
+    rulecolor=\color{gray!40},
+    numbers=none
+}
+
+% Header and Footer
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{Operating Systems -- Lab 12}
+\rhead{Iulian Pavlov, FAF-241}
+\cfoot{\thepage}
+
+\begin{document}
+
+% ============================================================================
+% TITLE PAGE
+% ============================================================================
+\hypersetup{pageanchor=false}
+\begin{titlepage}
+\begin{center}
+    \includegraphics[width=0.3\textwidth]{logo.png} \\[0.2cm]
+
+    \textbf{MINISTRY OF EDUCATION, CULTURE AND RESEARCH \\ OF THE REPUBLIC OF MOLDOVA} \\[0.3cm]
+
+    \textbf{Technical University of Moldova \\ Faculty of Computers, Informatics and Microelectronics \\ Department of Software and Automation Engineering} \\[1.8cm]
+
+    \textbf{Iulian Pavlov, FAF-241}\\[0.5cm]
+
+    \Huge \textbf{Report} \\[0.5cm]
+
+    \large Laboratory work nr. 12 \\[0.5cm]
+
+    \textbf{\Large Producer, Consumer and the Other Tools} \\[0.3cm]
+    \normalsize Course: Operating Systems (Track A: the real OS, from the outside (Linux)) \\[2.2cm]
+
+    \begin{flushright}
+        \textit{Checked by:} \\
+        \textbf{Reițman Patricia}, \textit{University Assistant} \\
+        Department of Software and Automation Engineering, \\
+        FCIM Faculty, UTM
+    \end{flushright}
+    \vfill
+
+    Chișinău -- 2026
+\end{center}
+\end{titlepage}
+\hypersetup{pageanchor=true}
+
+\pagenumbering{roman}
+\newpage
+\tableofcontents
+\newpage
+\pagenumbering{arabic}
+
+% ============================================================================
+% 1. THEORETICAL BACKGROUND & OBJECTIVES
+% ============================================================================
+\section{Theoretical Background and Objectives}
+
+\subsection{Laboratory Objectives and Scope}
+Mutual exclusion alone is rarely enough for real concurrent systems: threads frequently need to coordinate capacity limits, wait for state transitions without wasting CPU cycles, allow safe parallel reads while keeping writes exclusive, and avoid circular lock dependencies that freeze a process permanently.
+
+Laboratory Work No.~12 investigates four fundamental POSIX synchronization patterns on Linux:
+\begin{itemize}
+    \item \textbf{Bounded Buffer / Producer--Consumer (\texttt{prodcons.c})}: Combining counting semaphores (\texttt{empty} initialized to \texttt{SIZE = 4}, \texttt{full} initialized to \texttt{0}) with a mutex (\texttt{lock}) to coordinate a fast producer and a slow consumer cleanly, and observing the deadlock created when \texttt{lock} is acquired before \texttt{sem\_\allowbreak wait(\&empty)}.
+    \item \textbf{Condition Variables (\texttt{condvar.c})}: Sleeping efficiently on a predicate (\texttt{ready}) via \texttt{pthread\_\allowbreak cond\_\allowbreak wait()} and \texttt{pthread\_\allowbreak cond\_\allowbreak signal()}, and analyzing why a \texttt{while} loop is mandatory even when an \texttt{if} check appears to succeed in simple cases.
+    \item \textbf{Readers--Writers Synchronization (\texttt{readers.c})}: Letting multiple readers share a resource concurrently via \texttt{rlock} and \texttt{readers} while isolating each writer with \texttt{room}, and identifying data races and writer starvation hazards.
+    \item \textbf{Deadlock Prevention (\texttt{deadlock.c})}: Reproducing circular wait from reversed mutex order (\texttt{A -> B} vs.~\texttt{B -> A}), measuring intermittent hangs when \texttt{sleep(1)} is removed, and preventing deadlock via consistent lock ordering.
+\end{itemize}
+
+\subsection{Summary of Lab 12 Concurrency Patterns}
+Table~\ref{tab:patterns} outlines the synchronization primitives and invariants verified across the four hand-in programs.
+
+\begin{table}[H]
+\centering
+\caption{Concurrency Patterns and Primitives Studied in Lab 12}
+\label{tab:patterns}
+\begin{tabularx}{\textwidth}{l l >{\raggedright\arraybackslash}X}
+\toprule
+\textbf{Program} & \textbf{Primitives} & \textbf{Core Invariant Enforced} \\
+\midrule
+\texttt{prodcons.c} & \texttt{empty=4}, \texttt{full=0}, \texttt{lock} & Buffer occupancy stays in \([0, 4]\); waits happen outside \texttt{lock} \\
+\texttt{condvar.c} & \texttt{lock}, \texttt{changed}, \texttt{ready} & Reader sleeps cleanly until \texttt{ready == 1}, verified via \texttt{while} \\
+\texttt{readers.c} & \texttt{rlock=1}, \texttt{room=1}, \texttt{readers} & Up to \texttt{3} readers enter concurrently; each writer enters alone \\
+\texttt{deadlock.c} & Mutexes \texttt{A}, \texttt{B} & Both threads lock \texttt{A} before \texttt{B}, eliminating circular wait \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ============================================================================
+% 2. PART 1: PRODUCER AND CONSUMER
+% ============================================================================
+\section{Part 1: Producer and Consumer (\texttt{prodcons.c})}
+
+\subsection{Design and Synchronization Protocol}
+In \texttt{prodcons.c}, a producer writes \texttt{ITEMS = 8} integers into a circular ring buffer of capacity \texttt{SIZE = 4} (\texttt{buf[in]} and \texttt{buf[out]}), while a consumer inserts a \texttt{usleep(\allowbreak 300000)} delay between reads. Three primitives keep the interaction safe and bounded:
+\begin{itemize}
+    \item \texttt{empty} (initialized to \texttt{SIZE = 4}) counts available free slots.
+    \item \texttt{full} (initialized to \texttt{0}) counts filled slots ready to consume.
+    \item \texttt{lock} (\texttt{PTHREAD\_\allowbreak MUTEX\_\allowbreak INITIALIZER}) serializes reads/writes to \texttt{buf}, \texttt{in}, \texttt{out}, and the buffer count inside each critical section.
+\end{itemize}
+
+Critically, waiting on a semaphore always precedes acquiring \texttt{lock} (\texttt{sem\_\allowbreak wait(\&empty)} before \texttt{pthread\_\allowbreak mutex\_\allowbreak lock(\&lock)} in \texttt{producer()}; \texttt{sem\_\allowbreak wait(\&full)} before locking in \texttt{consumer()}).
+
+\subsection{Source Code}
+\lstinputlisting[style=cstyle, caption={Bounded-buffer producer and consumer implementation (\texttt{prodcons.c})}]{prodcons.c}
+
+\subsection{Build, Normal Execution, and Swapped-Lock Experiment}
+Compiled and executed normally:
+\begin{lstlisting}[style=bashstyle]
+gcc -Wall -pthread -o prodcons prodcons.c
+./prodcons
+\end{lstlisting}
+
+\begin{lstlisting}[style=consolestyle, caption={Observed output of \texttt{./prodcons} (exited cleanly with code \texttt{0})}]
+put 1  (in buffer: 1)
+put 2  (in buffer: 2)
+put 3  (in buffer: 3)
+put 4  (in buffer: 4)
+        take 1  (in buffer: 3)
+put 5  (in buffer: 4)
+        take 2  (in buffer: 3)
+put 6  (in buffer: 4)
+        take 3  (in buffer: 3)
+put 7  (in buffer: 4)
+        take 4  (in buffer: 3)
+put 8  (in buffer: 4)
+        take 5  (in buffer: 3)
+        take 6  (in buffer: 2)
+        take 7  (in buffer: 1)
+        take 8  (in buffer: 0)
+\end{lstlisting}
+
+To test the Part~1 observation experiment, an experimental binary (\texttt{prodcons\_\allowbreak swap}) placed \texttt{pthread\_\allowbreak mutex\_\allowbreak lock(\&lock)} \emph{before} \texttt{sem\_\allowbreak wait(\&empty)} inside \texttt{producer()} and was run under a 2-second timeout:
+
+\begin{lstlisting}[style=consolestyle, caption={Observed output of swapped lock/wait order in \texttt{producer()} (\texttt{timeout 2}: exit code \texttt{124})}]
+put 1  (in buffer: 1)
+put 2  (in buffer: 2)
+put 3  (in buffer: 3)
+        take 1  (in buffer: 2)
+put 4  (in buffer: 3)
+put 5  (in buffer: 4)
+(hung indefinitely -- timed out with exit code 124)
+\end{lstlisting}
+
+\subsection{Observe Answers (Part 1)}
+\begin{enumerate}
+    \item \textbf{Which call stops the fast producer from adding a fifth item?} \\
+    \texttt{sem\_\allowbreak wait(\&empty)} in \texttt{producer()}. Because \texttt{empty} starts at \texttt{SIZE} (\texttt{4}), each \texttt{put} decrements \texttt{empty} by \texttt{1}. Once four unconsumed items fill the buffer, \texttt{empty} reaches \texttt{0}, blocking the producer on its fifth \texttt{sem\_\allowbreak wait(\&empty)} call until the consumer finishes taking an item and signals \texttt{sem\_\allowbreak post(\&empty)}.
+
+    \item \textbf{Who waits at the very start of the run, and which call blocks them?} \\
+    Whenever the \texttt{consumer} runs before an item is produced (when \texttt{full == 0}, as initialized via \texttt{sem\_\allowbreak init(\&full, 0, 0)}), the \textbf{consumer} thread blocks on \texttt{sem\_\allowbreak wait(\&full)} until \texttt{producer} posts an item via \texttt{sem\_\allowbreak post(\&full)}.
+
+    \item \textbf{After swapping \texttt{pthread\_\allowbreak mutex\_\allowbreak lock(\&lock)} before \texttt{sem\_\allowbreak wait(\&empty)} in \texttt{producer()}, what happens when the buffer is full, and why?} \\
+    As observed above (\texttt{put 1}--\texttt{3}, \texttt{take 1}, \texttt{put 4}--\texttt{5}, then hang with exit code \texttt{124}), the program \textbf{deadlocks} the moment \texttt{producer()} attempts to insert when \texttt{in buffer == 4} (\texttt{empty == 0}). In that state, \texttt{producer()} acquires \texttt{lock} first and blocks inside \texttt{sem\_\allowbreak wait(\&empty)} without releasing \texttt{lock}. The only thread capable of calling \texttt{sem\_\allowbreak post(\&empty)} is \texttt{consumer()}, which must first acquire \texttt{lock} and therefore blocks permanently on \texttt{pthread\_\allowbreak mutex\_\allowbreak lock(\&lock)}.
+\end{enumerate}
+
+% ============================================================================
+% 3. PART 2: CONDITION VARIABLE
+% ============================================================================
+\section{Part 2: Condition Variable (\texttt{condvar.c})}
+
+\subsection{Wait/Signal Design}
+Rather than spinning in a polling loop while waiting for \texttt{writer()} (\texttt{sleep(1)} before producing \texttt{"hello"}), \texttt{reader()} sleeps passively on a POSIX condition variable \texttt{changed} paired with mutex \texttt{lock} and predicate \texttt{ready}. Calling \texttt{pthread\_\allowbreak cond\_\allowbreak wait(\allowbreak\&changed, \&lock)} atomically unlocks \texttt{lock}, puts the caller to sleep, and re-acquires \texttt{lock} before returning.
+
+\newpage
+\subsection{Source Code}
+\lstinputlisting[style=cstyle, caption={Writer--reader coordination via condition variable (\texttt{condvar.c})}]{condvar.c}
+
+\newpage
+\subsection{Build, Normal Execution, and \texttt{if}-Check Experiment}
+\begin{lstlisting}[style=bashstyle]
+gcc -Wall -pthread -o condvar condvar.c
+./condvar
+\end{lstlisting}
+
+\begin{lstlisting}[style=consolestyle, caption={Observed output of \texttt{./condvar} (and identical output with \texttt{if (!ready)}; exit code \texttt{0})}]
+B: not ready, I sleep
+A: message written
+B: I read "hello"
+\end{lstlisting}
+
+\subsection{Observe Answers (Part 2)}
+\begin{enumerate}
+    \item \textbf{Which variable remembers that the message was already ready?} \\
+    The shared integer flag \texttt{ready} (initialized to \texttt{0} and set to \texttt{1} inside \texttt{writer()}). Because both threads guard \texttt{ready} with \texttt{lock}, if thread~A completes first and sends \texttt{pthread\_\allowbreak cond\_\allowbreak signal(\&changed)} before thread~B checks \texttt{while (!ready)}, thread~B still observes \texttt{ready == 1} and skips sleeping rather than missing a lost wakeup.
+
+    \item \textbf{Change \texttt{while (!ready)} to \texttt{if (!ready)} and run again. Does it still work here?} \\
+    \textbf{Yes.} Testing the modified binary (\texttt{condvar\_\allowbreak if}) produced the exact same three output lines shown above and exited cleanly with code \texttt{0}, because only one reader and one writer exist and no spurious wakeup occurred during the short run.
+
+    \item \textbf{So why do we write \texttt{while}? Give one reason a thread can wake up from \texttt{pthread\_\allowbreak cond\_\allowbreak wait} and still find \texttt{ready == 0}.} \\
+    Two classic reasons make a \texttt{while} loop mandatory in correct condition-variable code:
+    \begin{itemize}
+        \item \textbf{Spurious wakeups:} The POSIX specification permits \texttt{pthread\_\allowbreak cond\_\allowbreak wait()} to wake up even when no thread called signal or broadcast; re-checking \texttt{!ready} ensures the waiter goes right back to sleep.
+        \item \textbf{Multiple consumers / stolen state:} If several consumer threads wait on \texttt{changed}, another consumer may wake up, acquire \texttt{lock}, consume the message, and reset \texttt{ready = 0} before the second woken thread re-acquires \texttt{lock}. Using \texttt{while (!ready)} prevents reading invalid or already-consumed data.
+    \end{itemize}
+\end{enumerate}
+
+% ============================================================================
+% 4. PART 3: READERS AND WRITERS
+% ============================================================================
+\section{Part 3: Readers and Writers (\texttt{readers.c})}
+
+\subsection{Shared-Read / Exclusive-Write Protocol}
+In \texttt{readers.c}, \texttt{READERS = 3} reader threads and \texttt{WRITERS = 2} writer threads access a shared integer \texttt{value}. Binary semaphores \texttt{rlock} (initially \texttt{1}) and \texttt{room} (initially \texttt{1}), together with counter \texttt{readers}, implement a first-readers-preference lock: once the first reader enters \texttt{room}, subsequent readers enter immediately without re-waiting on \texttt{room}, and only the final reader leaving releases \texttt{room} for waiting writers. Each critical section pauses briefly (\texttt{usleep(200000)}) to make overlap directly observable.
+
+\newpage
+\subsection{Source Code}
+\lstinputlisting[style=cstyle, basicstyle=\ttfamily\scriptsize, caption={First-readers-preference synchronization (\texttt{readers.c})}]{readers.c}
+
+\newpage
+\subsection{Build and Execution Output}
+\begin{lstlisting}[style=bashstyle]
+gcc -Wall -pthread -o readers readers.c
+./readers
+\end{lstlisting}
+
+\begin{lstlisting}[style=consolestyle, caption={Observed output of \texttt{./readers} (exit code \texttt{0})}]
+writer 1 writes 10  (alone)
+reader 1 reads 10  (readers inside: 1)
+reader 2 reads 10  (readers inside: 2)
+reader 3 reads 10  (readers inside: 3)
+writer 2 writes 20  (alone)
+\end{lstlisting}
+
+\subsection{Observe Answers (Part 3)}
+\begin{enumerate}
+    \item \textbf{Three readers are inside at the same time, while each writer runs alone. Which two lines in \texttt{reader()} make that possible?}
+    \begin{itemize}
+        \item Entry guard: \texttt{if (++readers == 1) sem\_\allowbreak wait(\&room);} --- only the \emph{first} active reader locks \texttt{room} to keep writers out; readers 2 and 3 observe \texttt{readers > 1} and enter immediately alongside reader 1.
+        \item Exit guard: \texttt{if (-{}-readers == 0) sem\_\allowbreak post(\&room);} --- only the \emph{last} active reader unlocks \texttt{room}, ensuring writers remain blocked until all readers have left.
+    \end{itemize}
+
+    \item \textbf{Why does \texttt{readers} need its own semaphore \texttt{rlock}? What could go wrong without it?} \\
+    Both \texttt{++readers} and \texttt{-{}-readers} are non-atomic read--modify--write sequences executed concurrently by multiple reader threads. Without \texttt{rlock} protecting the counter:
+    \begin{itemize}
+        \item Two arriving readers could both read \texttt{readers == 0}, both increment it to \texttt{1}, and both invoke \texttt{sem\_\allowbreak wait(\&room)}---causing the second reader to block unnecessarily or deadlock on \texttt{room} while the first already holds it.
+        \item Concurrent lost updates could leave \texttt{readers} artificially low (reaching \texttt{0} prematurely and letting a writer modify \texttt{value} while another reader is still reading) or artificially high (never returning to \texttt{0}, freezing all waiting writers forever).
+    \end{itemize}
+
+    \item \textbf{Imagine readers keep arriving with no pause between them. What happens to \texttt{writer 2}?} \\
+    \textbf{Writer starvation.} Because at least one reader is always inside (\texttt{readers} stays strictly positive), \texttt{-{}-readers == 0} never triggers and \texttt{sem\_\allowbreak post(\allowbreak\&room)} is never called, leaving \texttt{writer 2} blocked indefinitely at \texttt{sem\_\allowbreak wait(\allowbreak\&room)}.
+\end{enumerate}
+
+% ============================================================================
+% 5. PART 4: DEADLOCK AND HOW TO PREVENT IT
+% ============================================================================
+\section{Part 4: Deadlock and Prevention (\texttt{deadlock.c})}
+
+\subsection{Broken Symmetry vs.\ Consistent Global Lock Ordering}
+The original program triggers a textbook AB--BA deadlock: thread \texttt{one()} locks \texttt{A}, pauses \texttt{sleep(1)}, and waits for \texttt{B}, whereas thread \texttt{two()} locks \texttt{B}, pauses \texttt{sleep(1)}, and waits for \texttt{A}.
+
+Following the Lab~12 fix specification, the hand-in file \texttt{deadlock.c} swaps the two \texttt{pthread\_\allowbreak mutex\_\allowbreak lock()} calls and two \texttt{pthread\_\allowbreak mutex\_\allowbreak unlock()} calls inside \texttt{two()} so \textbf{both} threads always acquire \texttt{A} first and \texttt{B} second (unlocking in reverse order \texttt{B} then \texttt{A}), while keeping \texttt{two()}'s status printf unchanged.
+
+\subsection{Source Code (Fixed Hand-In Version)}
+\lstinputlisting[style=cstyle, caption={Fixed deadlock-free mutex acquisition order (\texttt{deadlock.c})}]{deadlock.c}
+
+\newpage
+\subsection{Observed Behavior: Stuck vs.\ Unthrottled vs.\ Fixed}
+Before keeping the fixed version, two diagnostic variants were compiled and executed for the Part~4 observations:
+\begin{enumerate}
+    \item \textbf{Original stuck variant (\texttt{deadlock\_\allowbreak stuck}, 5\,s timeout):}
+\begin{lstlisting}[style=consolestyle, caption={Observed deadlock with reversed lock order (\texttt{timeout 5}: exit code \texttt{124})}]
+two: I have B, I want A
+one: I have A, I want B
+(hung indefinitely -- timed out with exit code 124)
+\end{lstlisting}
+
+    \item \textbf{Original variant without both \texttt{sleep(1)} calls (\texttt{deadlock\_\allowbreak nosleep}, 10 runs at 0.5\,s timeout each):}
+    Across 10 consecutive executions, the timing-dependent deadlock struck intermittently:
+    \begin{itemize}
+        \item \textbf{Completed cleanly (\texttt{done}, exit code \texttt{0}):} 3 of 10 runs (Runs 1, 4, and 5).
+        \item \textbf{Deadlocked (hung, exit code \texttt{124}):} 7 of 10 runs (Runs 2, 3, 6, 7, 8, 9, and 10).
+    \end{itemize}
+
+    \item \textbf{Fixed hand-in version (\texttt{./deadlock}):}
+\begin{lstlisting}[style=bashstyle]
+gcc -Wall -pthread -o deadlock deadlock.c
+./deadlock
+\end{lstlisting}
+\begin{lstlisting}[style=consolestyle, caption={Observed output of fixed \texttt{./deadlock} (exited cleanly with code \texttt{0})}]
+one: I have A, I want B
+one: I have both
+two: I have B, I want A
+two: I have both
+done
+\end{lstlisting}
+\end{enumerate}
+
+\subsection{Observe Answers (Part 4)}
+\begin{enumerate}
+    \item \textbf{In the stuck run, which thread holds which mutex, and which one is each waiting for? Draw the circle.} \\
+    Thread \texttt{one} holds mutex \texttt{A} and waits for mutex \texttt{B}; thread \texttt{two} holds mutex \texttt{B} and waits for mutex \texttt{A}. The resulting resource-allocation wait cycle is:
+\begin{lstlisting}[style=consolestyle, caption={Circular-wait cycle in the deadlocked run}]
+  [Thread one] --wants--> (Mutex B) --held by--> [Thread two]
+       ^                                               |
+       |                                               |
+    held by                                          wants
+       |                                               v
+   (Mutex A) <-----------------------------------------+
+\end{lstlisting}
+
+    \item \textbf{Remove both \texttt{sleep(1)} lines from the original program and run it 10 times. Does it still always hang? Explain why that is worse, not better.} \\
+    \textbf{No --- it does not always hang.} In our 10-run measurement, it passed \texttt{3} times (runs 1, 4, 5) and hung \texttt{7} times (runs 2, 3, 6--10). \\
+    \textbf{Why this is worse, not better:} Removing \texttt{sleep(1)} narrows the scheduling window without fixing the underlying lock-order defect, turning a deterministic failure into an \textbf{intermittent race condition (Heisenbug)}. Because tests occasionally pass (\texttt{done}), broken code can slip past verification and deadlock unpredictably under real production timing.
+
+    \item \textbf{In one sentence: why can taking locks in the same order never deadlock?} \\
+    Enforcing a single global acquisition order across all threads (always \texttt{A} before \texttt{B}) eliminates circular wait---a thread holding a later lock can never request an earlier lock, so the thread holding the highest lock in the order can always finish and release its locks.
+\end{enumerate}
+
+% ============================================================================
+% 6. CONCLUSIONS
+% ============================================================================
+\section{Conclusions}
+
+Across the four Lab~12 programs, each POSIX primitive addresses a distinct dimension of safe thread coordination:
+\begin{itemize}
+    \item \textbf{Semaphores + Mutex Ordering (\texttt{prodcons.c}):} Counting semaphores bound buffer slots cleanly, but blocking operations (\texttt{sem\_\allowbreak wait}) must stay outside mutex critical sections---acquiring \texttt{lock} before waiting caused immediate deadlock when the 4-slot buffer filled.
+    \item \textbf{Predicate-Guarded Condition Variables (\texttt{condvar.c}):} Condition variables eliminate busy-waiting, and pairing \texttt{pthread\_\allowbreak cond\_\allowbreak wait} with \texttt{while (!ready)} prevents lost wakeups, spurious wakeups, and multi-consumer races.
+    \item \textbf{Shared Readers vs.\ Exclusive Writers (\texttt{readers.c}):} Guarding \texttt{readers} with \texttt{rlock} lets all 3 readers share \texttt{room} safely at once while each writer executes alone, though first-readers preference risks starving writers under continuous read traffic.
+    \item \textbf{Deadlock Prevention (\texttt{deadlock.c}):} Reversed lock acquisition creates a brittle circular wait that fails deterministically with \texttt{sleep(1)} and intermittently without it (\texttt{7/10} hangs in testing); imposing a uniform lock order (\texttt{A} before \texttt{B}) resolves the deadlock by construction.
+\end{itemize}
+
+\end{document}

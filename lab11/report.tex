@@ -1,0 +1,443 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{textcomp}
+\usepackage{newunicodechar}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{tabularx}
+\usepackage{array}
+
+% Adjust header height for fancyhdr
+\setlength{\headheight}{15pt}
+\addtolength{\topmargin}{-3pt}
+
+% Romanian Unicode support for standard pdflatex / tectonic
+\newunicodechar{Ă}{\v{A}}
+\newunicodechar{ă}{\v{a}}
+\newunicodechar{Â}{\^{A}}
+\newunicodechar{â}{\^{a}}
+\newunicodechar{Î}{\^{I}}
+\newunicodechar{î}{\^{i}}
+\newunicodechar{Ș}{\c{S}}
+\newunicodechar{ș}{\c{s}}
+\newunicodechar{Ț}{\c{T}}
+\newunicodechar{ț}{\c{t}}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=cyan,
+    citecolor=blue
+}
+
+% Colors for code listings
+\definecolor{codebg}{gray}{0.96}
+\definecolor{codegreen}{rgb}{0.13,0.55,0.13}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{codeblue}{rgb}{0.05,0.25,0.70}
+
+\lstset{
+    backgroundcolor=\color{codebg},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    breakatwhitespace=true,
+    frame=single,
+    rulecolor=\color{gray!40},
+    keepspaces=true,
+    showstringspaces=false,
+    upquote=true,
+    columns=fullflexible,
+    tabsize=2
+}
+
+\lstdefinestyle{cstyle}{
+    language=C,
+    commentstyle=\color{codegreen}\itshape,
+    keywordstyle=\color{codeblue}\bfseries,
+    stringstyle=\color{codepurple},
+    numbers=left,
+    numbersep=7pt,
+    numberstyle=\tiny\color{codegray},
+    stepnumber=1
+}
+
+\lstdefinestyle{bashstyle}{
+    language=bash,
+    commentstyle=\color{codegreen}\itshape,
+    keywordstyle=\color{codeblue}\bfseries,
+    stringstyle=\color{codepurple},
+    numbers=left,
+    numbersep=7pt,
+    numberstyle=\tiny\color{codegray},
+    stepnumber=1
+}
+
+\lstdefinestyle{consolestyle}{
+    backgroundcolor=\color{codebg},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    frame=single,
+    rulecolor=\color{gray!40},
+    numbers=none
+}
+
+% Header and Footer
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{Operating Systems -- Lab 11}
+\rhead{Iulian Pavlov, FAF-241}
+\cfoot{\thepage}
+
+\begin{document}
+
+% ============================================================================
+% TITLE PAGE
+% ============================================================================
+\hypersetup{pageanchor=false}
+\begin{titlepage}
+\begin{center}
+    \includegraphics[width=0.3\textwidth]{logo.png} \\[0.2cm]
+
+    \textbf{MINISTRY OF EDUCATION, CULTURE AND RESEARCH \\ OF THE REPUBLIC OF MOLDOVA} \\[0.3cm]
+
+    \textbf{Technical University of Moldova \\ Faculty of Computers, Informatics and Microelectronics \\ Department of Software and Automation Engineering} \\[1.8cm]
+
+    \textbf{Iulian Pavlov, FAF-241}\\[0.5cm]
+
+    \Huge \textbf{Report} \\[0.5cm]
+
+    \large Laboratory work nr. 11 \\[0.5cm]
+
+    \textbf{\Large The Race and the Semaphore} \\[0.3cm]
+    \normalsize Course: Operating Systems (Track A: the real OS, from the outside (Linux)) \\[2.2cm]
+
+    \begin{flushright}
+        \textit{Checked by:} \\
+        \textbf{Reițman Patricia}, \textit{University Assistant} \\
+        Department of Software and Automation Engineering, \\
+        FCIM Faculty, UTM
+    \end{flushright}
+    \vfill
+
+    Chișinău -- 2026
+\end{center}
+\end{titlepage}
+\hypersetup{pageanchor=true}
+
+\pagenumbering{roman}
+\newpage
+\tableofcontents
+\newpage
+\pagenumbering{arabic}
+
+% ============================================================================
+% 1. THEORETICAL BACKGROUND & OBJECTIVES
+% ============================================================================
+\section{Theoretical Background and Objectives}
+
+\subsection{Laboratory Objectives and Scope}
+Concurrent threads inside the same Linux process share one virtual address space, including global variables. Whenever multiple threads read and modify a shared variable without synchronization, preemptive scheduling and multicore execution interleave their machine instructions unpredictably, silently losing updates---a classic \textbf{data race}.
+
+The objectives of Laboratory Work No.~11 are:
+\begin{itemize}
+    \item \textbf{Observing a Data Race (\texttt{race.c})}: Compiling without \texttt{-O2} (so increments stay memory-backed) and showing how two threads adding \texttt{1} one million times each fall short of \texttt{2\,000\,000}.
+    \item \textbf{Mutual Exclusion (\texttt{mutex.c}, \texttt{sem.c}, \texttt{sem2.c})}: Protecting the critical section with a POSIX mutex (\texttt{pthread\_mutex\_t}) and with a POSIX semaphore initialized to \texttt{1} (\texttt{sem\_t}), verifying what breaks at initial count \texttt{2}, and profiling lock overhead with \texttt{time}.
+    \item \textbf{Thread Signaling (\texttt{order.c}, \texttt{order1.c})}: Enforcing strict writer-before-reader ordering using a semaphore initialized to \texttt{0}, and testing why starting at \texttt{1} causes premature reads.
+    \item \textbf{Resource Counting (\texttt{parking.c}, \texttt{parking1.c})}: Capping \texttt{6} car threads to \texttt{3} parking spots with a counting semaphore, then setting \texttt{PLACES} to \texttt{1} to verify mutex-like behavior.
+    \item \textbf{Lock-Free Atomics (\texttt{atomic.c} -- Optional)}: Testing hardware \texttt{atomic\_\allowbreak fetch\_\allowbreak add()} (\texttt{<stdatomic.\allowbreak h>}) against kernel-assisted locks.
+\end{itemize}
+
+\subsection{Three Synchronization Roles of a Semaphore}
+A POSIX semaphore manages a non-negative integer counter via two atomic primitives: \texttt{sem\_wait()} (decrements by \texttt{1}, blocking if currently \texttt{0}) and \texttt{sem\_post()} (increments by \texttt{1}, waking a waiting thread). Varying only the initial value switches the semaphore across three distinct synchronization idioms summarized in Table~1.
+
+\begin{table}[H]
+\centering
+\caption{Semaphore Initial Values and Their Synchronization Semantics in Lab 11}
+\begin{tabularx}{\textwidth}{c l >{\raggedright\arraybackslash}X l}
+\toprule
+\textbf{Init} & \textbf{Role} & \textbf{Synchronization Meaning} & \textbf{Programs} \\
+\midrule
+\texttt{1} & Binary lock (mutex) & At most one thread executes inside the critical section at any time & \texttt{sem.c}, \texttt{parking1.c} \\
+\texttt{0} & Ordering signal & A waiting thread blocks at \texttt{sem\_wait()} until another calls \texttt{sem\_post()} & \texttt{order.c} \\
+\texttt{N} (\texttt{3}) & Counting semaphore & Bounds concurrent occupancy to at most \texttt{N} threads simultaneously & \texttt{parking.c} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ============================================================================
+% 2. PART 1: SEE THE RACE
+% ============================================================================
+\section{Part 1: Observing the Data Race (\texttt{race.c})}
+
+\subsection{Implementation and Unprotected Runs}
+In \texttt{race.c}, two POSIX threads execute \texttt{add()}, each looping \texttt{N = 1\,000\,000} times to increment global \texttt{counter}. Compiling without \texttt{-O2} prevents the compiler from caching \texttt{counter} in a local register across loop iterations. \textit{(Note: an earlier paste escape sequence in \texttt{notes.md} left \texttt{race.c} empty; the file was restored directly from the Lab~11 specification, compiled cleanly with \texttt{gcc -Wall -pthread}, and verified across multiple live executions.)}
+
+\begin{lstlisting}[style=cstyle,caption={Unprotected shared counter in \texttt{race.c}}]
+#include <stdio.h>
+#include <pthread.h>
+#define N 1000000
+long counter = 0;
+void *add(void *arg) {
+    for (int i = 0; i < N; i++)
+        counter++;
+    return NULL;
+}
+int main(void) {
+    pthread_t a, b;
+    pthread_create(&a, NULL, add, NULL);
+    pthread_create(&b, NULL, add, NULL);
+    pthread_join(a, NULL);
+    pthread_join(b, NULL);
+    printf("counter = %ld (expected %d)\n", counter, 2 * N);
+    return 0;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[style=consolestyle]
+$ gcc -Wall -pthread -o race race.c
+$ ./race
+counter = 1213503 (expected 2000000)
+$ ./race
+counter = 1073171 (expected 2000000)
+$ ./race
+counter = 1220817 (expected 2000000)
+$ time ./race
+counter = 1089313 (expected 2000000)
+
+real	0m0.019s
+user	0m0.025s
+sys	0m0.003s
+\end{lstlisting}
+
+\subsection{Part 1 Observation Analysis}
+\begin{enumerate}
+    \item \textbf{Three CPU steps behind \texttt{counter++}}: Although written as one C expression, \texttt{counter++} executes in hardware as three separate instructions: \textbf{(1) Load} the current integer from memory into a register; \textbf{(2) Add~1} inside the CPU ALU; and \textbf{(3) Store} the new register value back into \texttt{counter} in memory.
+    \item \textbf{How two threads lose an addition}: Assume \texttt{counter} holds \texttt{100}. Thread~\texttt{a} loads \texttt{100} and computes \texttt{101}, then gets preempted (or runs concurrently on a second core) before storing. Thread~\texttt{b} also loads the stale \texttt{100}, computes \texttt{101}, and writes \texttt{101}. When Thread~\texttt{a} resumes and writes its \texttt{101}, both increments happened, yet memory holds \texttt{101} instead of \texttt{102}.
+    \item \textbf{Why each run produces a different total}: Timer interrupts, scheduler decisions across cores, and memory-cache timing differ slightly between runs, shifting how many read--modify--write windows collide (\texttt{1\,213\,503}, \texttt{1\,073\,171}, \texttt{1\,220\,817}).
+\end{enumerate}
+
+% ============================================================================
+% 3. PART 2: MUTEX VS. SEMAPHORE LOCK
+% ============================================================================
+\section{Part 2: Fixing the Race (\texttt{mutex.c}, \texttt{sem.c}, \texttt{sem2.c})}
+
+\subsection{Protecting the Critical Section}
+Two synchronization mechanisms serialize access to \texttt{counter++}:
+\begin{itemize}
+    \item \textbf{POSIX Mutex (\texttt{mutex.c})}: Uses a mutex statically initialized via \texttt{PTHREAD\_MUTEX\_\allowbreak INITIALIZER} to protect \texttt{counter++} with lock/unlock calls.
+    \item \textbf{POSIX Semaphore (\texttt{sem.c})}: Uses \texttt{sem\_init(\&s, 0, 1)}, wrapping \texttt{counter++} between \texttt{sem\_wait(\&s)} and \texttt{sem\_post(\&s)}.
+\end{itemize}
+
+\begin{lstlisting}[style=cstyle,caption={Semaphore lock worker in \texttt{sem.c} (\texttt{sem\_init(\&s, 0, 1)})}]
+sem_t s;
+void *add(void *arg) {
+    for (int i = 0; i < N; i++) {
+        sem_wait(&s);
+        counter++;
+        sem_post(&s);
+    }
+    return NULL;
+}
+\end{lstlisting}
+
+We also created \texttt{sem2.c} by setting \texttt{sem\_init(\&s, 0, 2)} (starting value \texttt{2}) to test what happens when multiple permits are available simultaneously:
+
+\begin{lstlisting}[style=consolestyle]
+$ ./mutex && ./mutex && ./mutex
+counter = 2000000 (expected 2000000)
+counter = 2000000 (expected 2000000)
+counter = 2000000 (expected 2000000)
+
+$ ./sem && ./sem && ./sem
+counter = 2000000 (expected 2000000)
+counter = 2000000 (expected 2000000)
+counter = 2000000 (expected 2000000)
+
+$ sed 's/sem_init(&s, 0, 1)/sem_init(\&s, 0, 2)/' sem.c > sem2.c
+$ gcc -Wall -pthread -o sem2 sem2.c && ./sem2 && ./sem2 && ./sem2
+counter = 1629819 (expected 2000000)
+counter = 1392310 (expected 2000000)
+counter = 1598883 (expected 2000000)
+\end{lstlisting}
+
+\subsection{Performance Comparison}
+Table~2 gathers live wall-clock, user-mode, and kernel-mode timings collected with \texttt{time} (including the optional lock-free \texttt{./atomic} run from Section~6). In the earlier \texttt{notes.md} log, \texttt{./mutex} took \texttt{0.197\,s} and \texttt{./sem} took \texttt{0.235\,s}; our fresh verification measured \texttt{0.195\,s} and \texttt{0.282\,s}, preserving the exact same performance ordering (\texttt{race} $<$ \texttt{atomic} $<$ \texttt{mutex} $<$ \texttt{sem}).
+
+\begin{table}[H]
+\centering
+\caption{Measured Execution Time and Accuracy Across Synchronization Methods}
+\begin{tabularx}{\textwidth}{l >{\raggedright\arraybackslash}X c c c c}
+\toprule
+\textbf{Program} & \textbf{Mechanism} & \textbf{Result} & \textbf{real (s)} & \textbf{user (s)} & \textbf{sys (s)} \\
+\midrule
+\texttt{./race}   & Unsynchronized           & \texttt{1089313} (wrong) & 0.019 & 0.025 & 0.003 \\
+\texttt{./atomic} & \texttt{atomic\_fetch\_add} & \texttt{2000000} (exact) & 0.044 & 0.084 & 0.000 \\
+\texttt{./mutex}  & \texttt{pthread\_mutex\_t} & \texttt{2000000} (exact) & 0.195 & 0.185 & 0.192 \\
+\texttt{./sem}    & \texttt{sem\_t} (\texttt{init=1}) & \texttt{2000000} (exact) & 0.282 & 0.260 & 0.295 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Part 2 Observation Analysis}
+\begin{enumerate}
+    \item \textbf{Consistency of \texttt{mutex} and \texttt{sem}}: Running both binaries three times each (plus timed runs) always produced \texttt{counter = 2000000} (\texttt{expected 2000000}), proving mutual exclusion prevented lost updates.
+    \item \textbf{Behavior of \texttt{sem\_init(\&s, 0, 2)} (\texttt{sem2.c})}: All runs failed (\texttt{1629819}, \texttt{1392310}, \texttt{1598883}; earlier \texttt{notes.md} runs gave \texttt{1610383}, \texttt{1914526}, \texttt{1386239}). Starting at \texttt{2} lets two threads pass \texttt{sem\_wait(\&s)} concurrently (\texttt{2 -> 1 -> 0}), allowing both threads inside the critical section and re-creating the race.
+    \item \textbf{Why the locked versions are slower}: Performing 2\,000\,000 lock acquisitions and releases introduces atomic compare-and-swap contention between CPU cores and kernel \texttt{futex} syscalls whenever a thread blocks or wakes (\texttt{sys} increases from \texttt{0.003\,s} in \texttt{race} to \texttt{0.192\,s} in \texttt{mutex} and \texttt{0.295\,s} in \texttt{sem}).
+\end{enumerate}
+
+% ============================================================================
+% 4. PART 3: SEMAPHORE AS A SIGNAL
+% ============================================================================
+\section{Part 3: Semaphore as an Ordering Signal (\texttt{order.c}, \texttt{order1.c})}
+
+\subsection{Coordinating Writer and Reader Threads}
+In \texttt{order.c}, \texttt{main()} starts \texttt{reader} (thread~\texttt{b}) before \texttt{writer} (thread~\texttt{a}). Because \texttt{ready} is initialized via \texttt{sem\_init(\&ready, 0, 0)}, \texttt{reader} blocks on \texttt{sem\_wait(\&ready)} after printing its first line until \texttt{writer} sleeps 1\,s, writes \texttt{"hello"} into \texttt{message}, and calls \texttt{sem\_post(\&ready)}. Variant \texttt{order1.c} changes the start count to \texttt{1}.
+
+\begin{lstlisting}[style=cstyle,caption={Writer-before-reader coordination in \texttt{order.c}}]
+char message[32];
+sem_t ready;
+void *writer(void *arg) {
+    sleep(1);
+    strcpy(message, "hello");
+    printf("A: message written\n");
+    sem_post(&ready);
+    return NULL;
+}
+void *reader(void *arg) {
+    printf("B: waiting for the message...\n");
+    sem_wait(&ready);
+    printf("B: I read \"%s\"\n", message);
+    return NULL;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[style=consolestyle]
+$ ./order
+B: waiting for the message...
+A: message written
+B: I read "hello"
+
+$ ./order1
+B: waiting for the message...
+B: I read ""
+A: message written
+\end{lstlisting}
+
+\subsection{Part 3 Observation Analysis}
+\begin{enumerate}
+    \item \textbf{Effect of \texttt{sem\_init(\&ready, 0, 1)} (\texttt{order1.c})}: \texttt{reader} immediately prints \texttt{B: I read ""} (an empty string) before \texttt{writer} finishes sleeping and prints \texttt{A: message written}. With an initial value of \texttt{1}, \texttt{sem\_wait(\&ready)} immediately consumes the spare token (\texttt{1 -> 0}) instead of waiting, reading the zero-initialized global array \texttt{message} before \texttt{strcpy()} runs.
+    \item \textbf{Meaning of a semaphore initialized to \texttt{0}}: A semaphore starting at \texttt{0} represents a signal ("nothing is ready yet") on which a consumer blocks at \texttt{sem\_wait()} until another thread signals completion with \texttt{sem\_post()}.
+\end{enumerate}
+
+% ============================================================================
+% 5. PART 4: SEMAPHORE AS A COUNTER (THE PARKING LOT)
+% ============================================================================
+\section{Part 4: Semaphore as a Counter (\texttt{parking.c})}
+
+\subsection{Bounded Concurrency with \texttt{PLACES = 3} and \texttt{PLACES = 1}}
+In \texttt{parking.c}, \texttt{CARS = 6} threads compete for \texttt{PLACES = 3} spots tracked by \texttt{places}. The semaphore limits capacity via \texttt{sem\_wait()} on entry and \texttt{sem\_post()} after \texttt{sleep(1)}, whereas \texttt{lock} guards \texttt{inside++}, \texttt{inside-{}-}, and \texttt{printf()}. Variant \texttt{parking1.c} sets \texttt{PLACES} to \texttt{1}.
+
+\begin{lstlisting}[style=cstyle,caption={Bounded parking simulation in \texttt{parking.c}}]
+#define PLACES 3
+#define CARS 6
+sem_t places;
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+int inside = 0;
+
+void *car(void *arg) {
+    long id = (long)arg;
+    sem_wait(&places);
+    pthread_mutex_lock(&lock);
+    inside++;
+    printf("car %ld enters (inside: %d)\n", id, inside);
+    pthread_mutex_unlock(&lock);
+    sleep(1);
+    pthread_mutex_lock(&lock);
+    inside--;
+    printf("car %ld leaves (inside: %d)\n", id, inside);
+    pthread_mutex_unlock(&lock);
+    sem_post(&places);
+    return NULL;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[style=consolestyle]
+$ ./parking
+car 1 enters (inside: 1)
+car 3 enters (inside: 2)
+car 2 enters (inside: 3)
+car 2 leaves (inside: 2)
+car 3 leaves (inside: 1)
+car 1 leaves (inside: 0)
+car 5 enters (inside: 1)
+car 4 enters (inside: 2)
+car 6 enters (inside: 3)
+car 5 leaves (inside: 2)
+car 4 leaves (inside: 1)
+car 6 leaves (inside: 0)
+
+$ ./parking1
+car 1 enters (inside: 1)
+car 1 leaves (inside: 0)
+car 2 enters (inside: 1)
+car 2 leaves (inside: 0)
+car 3 enters (inside: 1)
+car 3 leaves (inside: 0)
+car 4 enters (inside: 1)
+car 4 leaves (inside: 0)
+car 5 enters (inside: 1)
+car 5 leaves (inside: 0)
+car 6 enters (inside: 1)
+car 6 leaves (inside: 0)
+\end{lstlisting}
+
+\subsection{Part 4 Observation Analysis}
+\begin{enumerate}
+    \item \textbf{Maximum occupancy and enforcing code}: The largest observed value of \texttt{inside} is \textbf{\texttt{3}} (\texttt{car 2 enters (inside: 3)}, \texttt{car 6 enters (inside: 3)}). This invariant is guaranteed by \texttt{sem\_init(\&places, 0, PLACES);} (initializing \texttt{3} tokens) paired with \texttt{sem\_wait(\&places);} before incrementing \texttt{inside}, which blocks cars~4--6 until an active car releases a token via \texttt{sem\_post(\&places);}.
+    \item \textbf{Setting \texttt{PLACES} to \texttt{1} (\texttt{parking1.c})}: Each car enters and exits one at a time (\texttt{inside} alternates between \texttt{1} and \texttt{0}), serializing execution across 6~seconds. A counting semaphore initialized to \texttt{1} becomes a \textbf{binary semaphore (mutex)}.
+\end{enumerate}
+
+% ============================================================================
+% 6. OPTIONAL EXTENSION: LOCK-FREE ATOMICS
+% ============================================================================
+\section{Optional Extension: Lock-Free Atomics (\texttt{atomic.c})}
+
+For a single counter, \texttt{atomic.c} replaces locks with C11 \texttt{<stdatomic.h>}: \texttt{atomic\_long counter} initialized to \texttt{0} and updated via \texttt{atomic\_fetch\_add(\&counter, 1)}. The compiler emits an indivisible CPU atomic add instruction, preventing interleaving without kernel blocking.
+
+\begin{lstlisting}[style=consolestyle]
+$ time ./atomic
+counter = 2000000 (expected 2000000)
+
+real	0m0.044s
+user	0m0.084s
+sys	0m0.000s
+\end{lstlisting}
+
+With \texttt{0.000\,s} kernel time, \texttt{./atomic} achieved exact accuracy in \texttt{0.044\,s}---roughly \textbf{4.4x faster} than \texttt{./mutex} (\texttt{0.195\,s}) and \textbf{6.4x faster} than \texttt{./sem} (\texttt{0.282\,s}).
+
+% ============================================================================
+% 7. CONCLUSIONS
+% ============================================================================
+\section{Conclusions}
+
+\begin{enumerate}
+    \item \textbf{Root Cause of Data Races}: \texttt{counter++} comprises three non-atomic CPU steps (load, add, store); without mutual exclusion, concurrent threads overwrite each other's intermediate results (\texttt{1.07M--1.22M} instead of \texttt{2\,000\,000}).
+    \item \textbf{Versatility of POSIX Semaphores}: A single semaphore API (\texttt{sem\_wait} and \texttt{sem\_post}) covers three fundamental patterns purely through its initial count: \texttt{1} for mutual exclusion, \texttt{0} for execution-order signaling, and \texttt{N} for bounded resource concurrency.
+    \item \textbf{Correctness Requires Exact Initial Counts}: Starting a lock semaphore at \texttt{2} (\texttt{sem2.c}) admits two threads simultaneously and re-creates the race, while starting a signal semaphore at \texttt{1} (\texttt{order1.c}) lets the reader proceed before the writer produces data.
+    \item \textbf{Synchronization Performance Trade-Offs}: Locks enforce correctness at the price of atomic contention and kernel \texttt{futex} syscalls (\texttt{0.195\,s} for \texttt{mutex}, \texttt{0.282\,s} for \texttt{sem}), whereas lock-free hardware atomics (\texttt{atomic\_fetch\_add}) deliver exact results for single counters in \texttt{0.044\,s} with zero kernel overhead.
+\end{enumerate}
+
+\end{document}
