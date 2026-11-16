@@ -32,3 +32,4 @@ All kernel-side and user-side files from `xv6-riscv` required to build and verif
 - `report.tex` / `report.pdf` / `Lab13_IulianPavlov_FAF-241.pdf`: Formatted LaTeX report.
 - `results.txt`: Console outputs from `semtest`, `mix`, `mix lock`, and `trydown`.
 - `notes.txt`: Answers to the four observation questions from Part 3.
+
