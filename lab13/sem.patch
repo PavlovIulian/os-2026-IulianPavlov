@@ -1,0 +1,354 @@
+diff --git a/Makefile b/Makefile
+index 3771220..e1b74f5 100644
+--- a/Makefile
++++ b/Makefile
+@@ -18,6 +18,7 @@ OBJS = \
+   $K/trap.o \
+   $K/syscall.o \
+   $K/sysproc.o \
++  $K/sem.o \
+   $K/bio.o \
+   $K/fs.o \
+   $K/log.o \
+@@ -130,14 +131,18 @@ mkfs/mkfs: mkfs/mkfs.c $K/fs.h $K/param.h
+ .PRECIOUS: %.o
+ 
+ UPROGS=\
++	$U/_args\
+ 	$U/_cat\
+ 	$U/_echo\
++	$U/_sleep\
+ 	$U/_forktest\
+ 	$U/_grep\
+ 	$U/_init\
+ 	$U/_kill\
+ 	$U/_ln\
+ 	$U/_ls\
++	$U/_mystat\
++	$U/_find\
+ 	$U/_mkdir\
+ 	$U/_rm\
+ 	$U/_sh\
+@@ -146,7 +151,14 @@ UPROGS=\
+ 	$U/_grind\
+ 	$U/_wc\
+ 	$U/_zombie\
++	$U/_semtest\
++	$U/_mix\
++	$U/_trydown\
+ 	$U/_trace\
++	$U/_run\
++	$U/_pingpong\
++	$U/_primes\
++	$U/_xargs\
+ 	$U/_logstress\
+ 	$U/_forphan\
+ 	$U/_dorphan\
+diff --git a/kernel/sem.c b/kernel/sem.c
+new file mode 100644
+index 0000000..7afa6c0
+--- /dev/null
++++ b/kernel/sem.c
+@@ -0,0 +1,102 @@
++// sem.c: counting semaphores inside the xv6 kernel (Lab 13).
++// A small table of NSEM semaphores, shared by every process.
++// Each one is a number plus a spinlock that protects the number.
++
++#include "types.h"
++#include "riscv.h"
++#include "defs.h"
++#include "param.h"
++#include "spinlock.h"
++#include "proc.h"
++
++#define NSEM 8
++
++struct sem {
++  struct spinlock lock; // a zeroed spinlock is a free spinlock
++  int value;            // how many may still pass
++};
++
++static struct sem sems[NSEM];
++
++// Look up semaphore id from syscall arg 0; returns 0 if out of range.
++static struct sem *
++fetch_sem(void)
++{
++  int id;
++  argint(0, &id);
++  if (id < 0 || id >= NSEM)
++    return 0;
++  return &sems[id];
++}
++
++// sem_init(id, value): give semaphore id its start value.
++uint64
++sys_sem_init(void)
++{
++  struct sem *s = fetch_sem();
++  int value;
++  argint(1, &value);
++  if (!s || value < 0)
++    return -1;
++  acquire(&s->lock);
++  s->value = value;
++  release(&s->lock);
++  return 0;
++}
++
++// sem_down(id): take one unit; if there is none, sleep until there is.
++uint64
++sys_sem_down(void)
++{
++  struct sem *s = fetch_sem();
++  if (!s)
++    return -1;
++
++  acquire(&s->lock);
++  while (s->value == 0) {
++    sleep_prepare(s);       // I will sleep on the address of s
++    release(&s->lock);      // never sleep holding a spinlock
++    sleep();                // returns at once if sem_up came in between
++    acquire(&s->lock);
++    if (killed(myproc())) { // kill must still work on a waiting process
++      release(&s->lock);
++      return -1;
++    }
++  }
++  s->value--;
++  release(&s->lock);
++  return 0;
++}
++
++// sem_up(id): give one unit back and wake whoever sleeps on s.
++uint64
++sys_sem_up(void)
++{
++  struct sem *s = fetch_sem();
++  if (!s)
++    return -1;
++
++  acquire(&s->lock);
++  s->value++;
++  wakeup(s);
++  release(&s->lock);
++  return 0;
++}
++
++// sem_trydown(id): take one unit if > 0, or return -1 immediately without sleeping.
++uint64
++sys_sem_trydown(void)
++{
++  struct sem *s = fetch_sem();
++  if (!s)
++    return -1;
++
++  acquire(&s->lock);
++  if (s->value == 0) {
++    release(&s->lock);
++    return -1;
++  }
++  s->value--;
++  release(&s->lock);
++  return 0;
++}
+diff --git a/kernel/syscall.c b/kernel/syscall.c
+index 00fdc33..9f13c34 100644
+--- a/kernel/syscall.c
++++ b/kernel/syscall.c
+@@ -104,6 +104,10 @@ extern uint64 sys_mkdir(void);
+ extern uint64 sys_close(void);
+ extern uint64 sys_sync(void);
+ extern uint64 sys_trace(void);
++extern uint64 sys_sem_init(void);
++extern uint64 sys_sem_down(void);
++extern uint64 sys_sem_up(void);
++extern uint64 sys_sem_trydown(void);
+ 
+ // An array mapping syscall numbers from syscall.h
+ // to the function that handles the system call.
+@@ -132,9 +136,14 @@ static uint64 (*syscalls[])(void) = {
+   [SYS_close]   = sys_close,
+   [SYS_sync]    = sys_sync,
+   [SYS_trace]   = sys_trace,
++  [SYS_sem_init]    = sys_sem_init,
++  [SYS_sem_down]    = sys_sem_down,
++  [SYS_sem_up]      = sys_sem_up,
++  [SYS_sem_trydown] = sys_sem_trydown,
+   // clang-format on
+ };
+ 
++// Names of the system calls, indexed by syscall number (used by trace).
+ static char *syscallnames[] = {
+   [SYS_fork] "fork",   [SYS_exit] "exit",     [SYS_wait] "wait",
+   [SYS_pipe] "pipe",   [SYS_read] "read",     [SYS_kill] "kill",
+@@ -144,6 +153,8 @@ static char *syscallnames[] = {
+   [SYS_write] "write", [SYS_mknod] "mknod",   [SYS_unlink] "unlink",
+   [SYS_link] "link",   [SYS_mkdir] "mkdir",   [SYS_close] "close",
+   [SYS_sync] "sync",   [SYS_trace] "trace",
++  [SYS_sem_init] "sem_init", [SYS_sem_down] "sem_down",
++  [SYS_sem_up] "sem_up",     [SYS_sem_trydown] "sem_trydown",
+ };
+ 
+ void
+@@ -158,10 +169,10 @@ syscall(void)
+     // and store its return value in p->trapframe->a0
+     p->trapframe->a0 = syscalls[num]();
+     if ((p->trace_mask >> num) & 1)
+-      printk("%d: syscall %s -> %ld\n",
+-             p->pid, syscallnames[num], p->trapframe->a0);
++      printk("%d: syscall %s -> %ld\n", p->pid, syscallnames[num],
++             p->trapframe->a0);
+   } else {
+     printk("%d %s: unknown sys call %d\n", p->pid, p->name, num);
+     p->trapframe->a0 = -1;
+   }
+-}
++}
+\ No newline at end of file
+diff --git a/kernel/syscall.h b/kernel/syscall.h
+index 9e7d8fa..4f5bf1e 100644
+--- a/kernel/syscall.h
++++ b/kernel/syscall.h
+@@ -20,5 +20,9 @@
+ #define SYS_link   19
+ #define SYS_mkdir  20
+ #define SYS_close  21
+-#define SYS_sync   22
+-#define SYS_trace 23
++#define SYS_sync     22
++#define SYS_trace    23
++#define SYS_sem_init    24
++#define SYS_sem_down    25
++#define SYS_sem_up      26
++#define SYS_sem_trydown 27
+diff --git a/user/mix.c b/user/mix.c
+new file mode 100644
+index 0000000..9580cfb
+--- /dev/null
++++ b/user/mix.c
+@@ -0,0 +1,32 @@
++// mix.c: two processes print five lines each, one letter per write().
++// mix      no lock: the letters of the two processes can mix
++// mix lock semaphore 3 used as a lock: every line stays whole
++#include "kernel/types.h"
++#include "user/user.h"
++
++void
++lines(char *s, int uselock)
++{
++  for (int k = 0; k < 5; k++) {
++    if (uselock)
++      sem_down(3);
++    for (char *p = s; *p; p++)
++      write(1, p, 1);
++    if (uselock)
++      sem_up(3);
++  }
++}
++
++int
++main(int argc, char *argv[])
++{
++  int uselock = (argc > 1);
++  sem_init(3, 1);
++  if (fork() == 0) {
++    lines("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n", uselock);
++    exit(0);
++  }
++  lines("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n", uselock);
++  wait(0);
++  exit(0);
++}
+diff --git a/user/semtest.c b/user/semtest.c
+new file mode 100644
+index 0000000..8624a53
+--- /dev/null
++++ b/user/semtest.c
+@@ -0,0 +1,39 @@
++// semtest.c: two tests for the kernel semaphores (Lab 12).
++#include "kernel/types.h"
++#include "user/user.h"
++
++int
++main(void)
++{
++  // Test 1: order. Semaphore 0 starts at 0, so the child must wait.
++  sem_init(0, 0);
++  if (fork() == 0) {
++    sem_down(0);
++    printf("child: I ran after the parent\n");
++    exit(0);
++  }
++  pause(10);
++  printf("parent: done, I let the child go\n");
++  sem_up(0);
++  wait(0);
++
++  // Test 2: ping-pong. Semaphore 1 = ping's turn, semaphore 2 = pong's turn.
++  sem_init(1, 1);
++  sem_init(2, 0);
++  if (fork() == 0) {
++    for (int i = 1; i <= 3; i++) {
++      sem_down(2);
++      printf(" pong %d\n", i);
++      sem_up(1);
++    }
++    exit(0);
++  }
++  for (int i = 1; i <= 3; i++) {
++    sem_down(1);
++    printf("ping %d\n", i);
++    sem_up(2);
++  }
++  wait(0);
++  printf("semtest: OK\n");
++  exit(0);
++}
+diff --git a/user/trydown.c b/user/trydown.c
+new file mode 100644
+index 0000000..ac3fa53
+--- /dev/null
++++ b/user/trydown.c
+@@ -0,0 +1,14 @@
++// trydown.c: demonstrate non-blocking sem_trydown() returning 0 then -1.
++#include "kernel/types.h"
++#include "user/user.h"
++
++int
++main(void)
++{
++  sem_init(4, 1);
++  printf("first trydown: %d\n", sem_trydown(4));
++  printf("second trydown (at 0): %d\n", sem_trydown(4));
++  sem_up(4);
++  printf("after sem_up, third trydown: %d\n", sem_trydown(4));
++  exit(0);
++}
+diff --git a/user/user.h b/user/user.h
+index b8002ab..5ca2bee 100644
+--- a/user/user.h
++++ b/user/user.h
+@@ -26,6 +26,10 @@ int pause(int);
+ int uptime(void);
+ int sync(void);
+ int trace(int);
++int sem_init(int, int);
++int sem_down(int);
++int sem_up(int);
++int sem_trydown(int);
+ 
+ // ulib.c
+ int stat(const char *, struct stat *);
+diff --git a/user/usys.pl b/user/usys.pl
+index f9185b5..3b8c7af 100755
+--- a/user/usys.pl
++++ b/user/usys.pl
+@@ -44,3 +44,7 @@ entry("pause");
+ entry("uptime");
+ entry("sync");
+ entry("trace");
++entry("sem_init");
++entry("sem_down");
++entry("sem_up");
++entry("sem_trydown");
