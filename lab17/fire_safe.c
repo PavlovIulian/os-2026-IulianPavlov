@@ -1,6 +1,4 @@
-/* fire_safe.c - safe counter increment using pthread_mutex (proposing the fix)
- * Build: gcc -Wall -Wextra -pthread -o fire_safe fire_safe.c Run: ./fire_safe
- */
+
 #include <stdio.h>
 #include <pthread.h>
 

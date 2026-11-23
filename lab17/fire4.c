@@ -1,7 +1,4 @@
-/* fire4.c - four threads of one process share the same memory.
- * Part 2: Add two more threads (four total) and run again. Does the loss get bigger?
- * Build: gcc -Wall -Wextra -pthread -o fire4 fire4.c Run: ./fire4
- */
+
 #include <stdio.h>
 #include <pthread.h>
 
