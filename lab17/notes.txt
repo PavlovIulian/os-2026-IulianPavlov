@@ -1,0 +1,56 @@
+===============================================================================
+Operating Systems -- Lab 17: Threads Share Memory, and Race
+Student: Iulian Pavlov, Group FAF-241
+===============================================================================
+
+-------------------------------------------------------------------------------
+Observe Question 1 (Part 1):
+Thread 2 prints a non-zero counter at the start. What does that prove about
+the memory of the two threads?
+-------------------------------------------------------------------------------
+Answer:
+It proves that threads within the same process share the exact same address
+space and virtual memory. Unlike separate processes (which receive isolated,
+copy-on-write memory spaces created by fork()), threads created by
+pthread_create() share global variables directly in memory. When Thread 2 starts
+and reads `counter`, it directly observes the memory modifications already
+written by Thread 1 without any inter-process communication or data copying.
+
+
+-------------------------------------------------------------------------------
+Observe Question 2 (Part 1):
+Why is the final counter less than 2000000, and different each run? Explain
+with the three steps of counter++.
+-------------------------------------------------------------------------------
+Answer:
+In C, the expression `counter++` is not an atomic operation. At the hardware
+assembly level, it translates into three distinct, separate instructions:
+  1. Read (Load):   Copy `counter` from RAM into a CPU register (e.g. `movq counter(%rip), %rax`).
+  2. Add (Modify):  Increment the value held in the register (e.g. `addq $1, %rax`).
+  3. Write (Store): Write the incremented value from the register back to RAM (e.g. `movq %rax, counter(%rip)`).
+
+When two or more threads run concurrently on multiple CPU cores or are
+interleaved by the kernel scheduler, their read-modify-write sequences
+overlap in time (a data race). For instance:
+  - Time t0: Thread 1 reads `counter` (value = 500) into its register.
+  - Time t1: Thread 2 reads `counter` (value = 500) into its register before Thread 1 writes back.
+  - Time t2: Thread 1 adds 1 (register = 501) and stores 501 to RAM.
+  - Time t3: Thread 2 adds 1 (register = 501) and stores 501 to RAM, overwriting Thread 1's work.
+
+Two distinct increments took place, but `counter` only increased by 1; one
+update was silently lost. Because thread scheduling, interrupt timing, and core
+execution speeds fluctuate unpredictably on every execution, race windows occur
+at random points, making the final result non-deterministic and strictly below
+2,000,000.
+
+
+-------------------------------------------------------------------------------
+Observe Question 3 (Part 2):
+In one sentence: what single idea would stop the lost updates? (You build it
+next week.)
+-------------------------------------------------------------------------------
+Answer:
+Enforcing mutual exclusion around the critical section (e.g., via a mutex lock
+or atomic hardware instruction) so that only one thread can execute the
+read-modify-write sequence on the shared counter at any given instant.
+

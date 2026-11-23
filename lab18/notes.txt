@@ -1,0 +1,60 @@
+===============================================================================
+Operating Systems -- Lab 18: Build a User-Level Thread Switch (xv6)
+Student: Iulian Pavlov, Group FAF-241
+===============================================================================
+
+-------------------------------------------------------------------------------
+Observe Question:
+What exactly does thread_switch save and load? Why is ra the register that
+makes execution continue in the other thread?
+-------------------------------------------------------------------------------
+Answer:
+
+1. What thread_switch saves and loads:
+   `thread_switch(struct context *old, struct context *new)` saves the
+   callee-saved registers of the currently running thread into `old->ctx`
+   (referenced by register `a0`) and restores the callee-saved registers of the
+   next thread from `new->ctx` (referenced by register `a1`).
+
+   Specifically, it saves and restores exactly 14 64-bit registers:
+     - `ra`  (offset 0): Return Address
+     - `sp`  (offset 8): Stack Pointer
+     - `s0`  (offset 16): Frame pointer / Saved register 0
+     - `s1`  (offset 24): Saved register 1
+     - `s2`  (offset 32): Saved register 2
+     - `s3`  (offset 40): Saved register 3
+     - `s4`  (offset 48): Saved register 4
+     - `s5`  (offset 56): Saved register 5
+     - `s6`  (offset 64): Saved register 6
+     - `s7`  (offset 72): Saved register 7
+     - `s8`  (offset 80): Saved register 8
+     - `s9`  (offset 88): Saved register 9
+     - `s10` (offset 96): Saved register 10
+     - `s11` (offset 104): Saved register 11
+
+   Caller-saved registers (`t0`--`t6`, `a0`--`a7`) are NOT saved by
+   `thread_switch`. According to the RISC-V calling convention (ABI), any C
+   caller calling `thread_yield()` or `thread_schedule()` expects caller-saved
+   registers to be clobbered by the call; therefore, the C compiler has already
+   saved any live variables residing in caller-saved registers onto the thread's
+   own call stack before `thread_switch` was entered.
+
+2. Why `ra` makes execution continue in the other thread:
+   In RISC-V assembly, the `ret` instruction is a pseudo-instruction for
+   `jalr zero, 0(ra)` (jump and link register to address in `ra`, discarding
+   return link). Thus, executing `ret` unconditionally jumps to the target
+   address stored in the `ra` register.
+
+   When `thread_switch` runs:
+     - It loads `ra` from `0(a1)` (the next thread's saved `ctx.ra`).
+     - When `ret` executes at the end of `thread_switch`:
+       a) If the thread is newly created, `thread_create()` initialized
+          `t->ctx.ra = (uint64)func`. Therefore, `ret` jumps directly to the
+          entry instruction of `func` (e.g., `thread_a`), executing with `sp`
+          pointing to the top of its private stack (`t->stack + STACK_SIZE`).
+       b) If the thread was previously suspended by a prior switch, `ra` holds
+          the return address within `thread_schedule()` immediately following
+          the call to `thread_switch()`. Thus, `ret` resumes execution right
+          after `thread_switch()` within the other thread's context, making it
+          appear as if `thread_switch()` just returned normally in that thread.
+

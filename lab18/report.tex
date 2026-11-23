@@ -1,0 +1,475 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{textcomp}
+\usepackage{newunicodechar}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{tabularx}
+\usepackage{array}
+
+% Adjust header height for fancyhdr
+\setlength{\headheight}{15pt}
+\addtolength{\topmargin}{-3pt}
+
+% Romanian Unicode support for standard pdflatex / tectonic
+\newunicodechar{Ă}{\v{A}}
+\newunicodechar{ă}{\v{a}}
+\newunicodechar{Â}{\^{A}}
+\newunicodechar{â}{\^{a}}
+\newunicodechar{Î}{\^{I}}
+\newunicodechar{î}{\^{i}}
+\newunicodechar{Ș}{\c{S}}
+\newunicodechar{ș}{\c{s}}
+\newunicodechar{Ț}{\c{T}}
+\newunicodechar{ț}{\c{t}}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=cyan,
+    citecolor=blue
+}
+
+% Colors for code listings
+\definecolor{codebg}{gray}{0.96}
+\definecolor{codegreen}{rgb}{0.13,0.55,0.13}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{codeblue}{rgb}{0.05,0.25,0.70}
+
+\lstset{
+    backgroundcolor=\color{codebg},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    breakatwhitespace=true,
+    frame=single,
+    rulecolor=\color{gray!40},
+    keepspaces=true,
+    showstringspaces=false,
+    upquote=true,
+    columns=fullflexible,
+    tabsize=2
+}
+
+\lstdefinestyle{cstyle}{
+    language=C,
+    commentstyle=\color{codegreen}\itshape,
+    keywordstyle=\color{codeblue}\bfseries,
+    stringstyle=\color{codepurple},
+    numbers=left,
+    numbersep=7pt,
+    numberstyle=\tiny\color{codegray},
+    stepnumber=1
+}
+
+\lstdefinestyle{asmstyle}{
+    commentstyle=\color{codegreen}\itshape,
+    keywordstyle=\color{codeblue}\bfseries,
+    stringstyle=\color{codepurple},
+    numbers=left,
+    numbersep=7pt,
+    numberstyle=\tiny\color{codegray},
+    stepnumber=1
+}
+
+\lstdefinestyle{consolestyle}{
+    backgroundcolor=\color{codebg},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    frame=single,
+    rulecolor=\color{gray!40},
+    numbers=none
+}
+
+% Header and Footer
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{Operating Systems -- Lab 18}
+\rhead{Iulian Pavlov, FAF-241}
+\cfoot{\thepage}
+
+\begin{document}
+
+% ============================================================================
+% TITLE PAGE
+% ============================================================================
+\hypersetup{pageanchor=false}
+\begin{titlepage}
+\begin{center}
+    \includegraphics[width=0.3\textwidth]{logo.png} \\[0.2cm]
+
+    \textbf{MINISTRY OF EDUCATION, CULTURE AND RESEARCH \\ OF THE REPUBLIC OF MOLDOVA} \\[0.3cm]
+
+    \textbf{Technical University of Moldova \\ Faculty of Computers, Informatics and Microelectronics \\ Department of Software and Automation Engineering} \\[1.8cm]
+
+    \textbf{Iulian Pavlov, FAF-241}\\[0.5cm]
+
+    \Huge \textbf{Report} \\[0.5cm]
+
+    \large Laboratory work nr. 18 \\[0.5cm]
+
+    \textbf{\Large Build a User-Level Thread Switch} \\[0.3cm]
+    \normalsize Course: Operating Systems (Track B: build the OS (xv6)) \\[2.2cm]
+
+    \begin{flushright}
+        \textit{Checked by:} \\
+        \textbf{Reițman Patricia}, \textit{University Assistant} \\
+        Department of Software and Automation Engineering, \\
+        FCIM Faculty, UTM
+    \end{flushright}
+    \vfill
+
+    Chișinău -- 2026
+\end{center}
+\end{titlepage}
+\hypersetup{pageanchor=true}
+
+\pagenumbering{roman}
+\newpage
+\tableofcontents
+\newpage
+\pagenumbering{arabic}
+
+% ============================================================================
+% 1. THEORETICAL BACKGROUND & OBJECTIVES
+% ============================================================================
+\section{Theoretical Background and Objectives}
+
+\subsection{User-Level Threading vs. Kernel Threading}
+Operating systems support threading paradigms at varying abstraction levels. In the standard 1:1 kernel threading model, every user-visible thread is backed by a kernel scheduling entity (\texttt{struct proc} or \texttt{task\_struct}). While this allows simultaneous execution across multi-core harts and preemption, every thread switch incurs a transition into supervisor mode via timer interrupts or trap calls (\texttt{ecall}), invalidating registers and incurring pipeline flush costs.
+
+In contrast, **user-level threads** ($N:1$ or cooperative green threads) execute entirely inside user space without kernel knowledge. A lightweight user-level runtime maintains the threads' call stacks and executes context switches using plain register save and load instructions. Switching takes merely a few nanoseconds because no trap, kernel lock, or page table manipulation is required.
+
+\subsection{Laboratory Objectives}
+The objectives of Laboratory Work No.~18 are:
+\begin{itemize}
+    \item \textbf{Context Data Structure}: Designing \texttt{struct context} to encapsulate all 14 callee-saved registers required by the RISC-V C calling convention.
+    \item \textbf{Assembly Context Switcher (\texttt{thread\_switch})}: Implementing a minimal assembly routine in RISC-V assembly that saves the caller's context and restores the callee's context.
+    \item \textbf{Thread Management}: Implementing \texttt{thread\_create} to construct an initial activation frame with a valid function pointer in \texttt{ra} and an aligned stack pointer in \texttt{sp}.
+    \item \textbf{Cooperative Scheduling}: Building a round-robin scheduler (\texttt{thread\_schedule}) and voluntary yield primitive (\texttt{thread\_yield}) to interleave multiple worker threads.
+    \item \textbf{Build System Integration}: Updating the xv6 \texttt{Makefile} with explicit object-linking rules for \texttt{\_uthread}.
+\end{itemize}
+
+% ============================================================================
+% 2. ARCHITECTURE AND IMPLEMENTATION
+% ============================================================================
+\section{Architecture and Implementation Details}
+
+\subsection{Register Convention and Context Structure}
+According to the RISC-V 64-bit ABI (Calling Convention), CPU registers are partitioned into caller-saved and callee-saved:
+\begin{itemize}
+    \item \textbf{Caller-saved registers} (\texttt{ra}, \texttt{t0}--\texttt{t6}, \texttt{a0}--\texttt{a7}): The caller must spill these to its stack before invoking a function if their values are needed after the call.
+    \item \textbf{Callee-saved registers} (\texttt{sp}, \texttt{s0}--\texttt{s11}): The invoked function (the callee) must preserve their values across the call.
+\end{itemize}
+Because \texttt{thread\_switch} is called as a normal C function from \texttt{thread\_schedule}, GCC automatically generates code spilling all live caller-saved registers onto the current thread's stack. Thus, \texttt{thread\_switch} only needs to save and restore \texttt{ra}, \texttt{sp}, and \texttt{s0}--\texttt{s11} (14 registers in total, 112 bytes).
+
+Listing~\ref{lst:types} shows \texttt{struct context} and \texttt{struct thread} in \texttt{user/uthread.c}.
+
+\begin{lstlisting}[style=cstyle, caption={\texttt{struct context} and \texttt{struct thread} Definitions}, label={lst:types}]
+#define FREE 0x0
+#define RUNNING 0x1
+#define RUNNABLE 0x2
+
+#define STACK_SIZE 8192
+#define MAX_THREAD 4
+
+struct context {
+  /* ra, sp, s0..s11 (14 fields, each uint64) */
+  uint64 ra;
+  uint64 sp;
+
+  // callee-saved registers
+  uint64 s0;
+  uint64 s1;
+  uint64 s2;
+  uint64 s3;
+  uint64 s4;
+  uint64 s5;
+  uint64 s6;
+  uint64 s7;
+  uint64 s8;
+  uint64 s9;
+  uint64 s10;
+  uint64 s11;
+};
+
+struct thread {
+  struct context ctx;
+  char stack[STACK_SIZE] __attribute__((aligned(16)));
+  int state;
+};
+
+struct thread all_thread[MAX_THREAD];
+struct thread *current_thread;
+\end{lstlisting}
+
+\subsection{Assembly Switcher (\texttt{user/uthread\_switch.S})}
+Listing~\ref{lst:switch} provides the complete assembly implementation of \texttt{thread\_switch}. Register \texttt{a0} holds the pointer to the old thread's context (\texttt{\&old->ctx}), and \texttt{a1} holds the pointer to the new thread's context (\texttt{\&next\_thread->ctx}).
+
+\begin{lstlisting}[style=asmstyle, caption={RISC-V Context Switcher (\texttt{user/uthread\_switch.S})}, label={lst:switch}]
+	.text
+	.globl thread_switch
+thread_switch:
+	sd ra, 0(a0)
+	sd sp, 8(a0)
+	sd s0, 16(a0)
+	sd s1, 24(a0)
+	sd s2, 32(a0)
+	sd s3, 40(a0)
+	sd s4, 48(a0)
+	sd s5, 56(a0)
+	sd s6, 64(a0)
+	sd s7, 72(a0)
+	sd s8, 80(a0)
+	sd s9, 88(a0)
+	sd s10, 96(a0)
+	sd s11, 104(a0)
+
+	ld ra, 0(a1)
+	ld sp, 8(a1)
+	ld s0, 16(a1)
+	ld s1, 24(a1)
+	ld s2, 32(a1)
+	ld s3, 40(a1)
+	ld s4, 48(a1)
+	ld s5, 56(a1)
+	ld s6, 64(a1)
+	ld s7, 72(a1)
+	ld s8, 80(a1)
+	ld s9, 88(a1)
+	ld s10, 96(a1)
+	ld s11, 104(a1)
+
+	ret
+\end{lstlisting}
+
+\subsection{Scheduler and Thread Creation}
+Listing~\ref{lst:sched} shows \texttt{thread\_create} and \texttt{thread\_schedule}.
+
+\begin{lstlisting}[style=cstyle, caption={Creation and Scheduling Implementation}, label={lst:sched}]
+void
+thread_create(void (*func)())
+{
+  struct thread *t;
+
+  for (t = all_thread; t < all_thread + MAX_THREAD; t++) {
+    if (t->state == FREE) break;
+  }
+  t->state = RUNNABLE;
+  /* Set initial return address and stack pointer */
+  t->ctx.ra = (uint64)func;
+  t->ctx.sp = (uint64)t->stack + STACK_SIZE;
+}
+
+void
+thread_schedule(void)
+{
+  struct thread *t, *next_thread;
+
+  next_thread = 0;
+  t = current_thread + 1;
+  for(int i = 0; i < MAX_THREAD; i++){
+    if(t >= all_thread + MAX_THREAD)
+      t = all_thread;
+    if(t->state == RUNNABLE) {
+      next_thread = t;
+      break;
+    }
+    t = t + 1;
+  }
+
+  if (next_thread == 0) {
+    printf("thread_schedule: no runnable threads\n");
+    exit(-1);
+  }
+
+  if (current_thread != next_thread) {
+    struct thread *old = current_thread;
+    next_thread->state = RUNNING;
+    current_thread = next_thread;
+    thread_switch(&old->ctx, &next_thread->ctx);
+  }
+}
+\end{lstlisting}
+
+\subsection{Cooperative Worker Threads}
+Listing~\ref{lst:workers} details the worker functions \texttt{thread\_a}, \texttt{thread\_b}, and \texttt{thread\_c}.
+
+\begin{lstlisting}[style=cstyle, caption={Worker Threads with Barrier Synchronization}, label={lst:workers}]
+volatile int a_started, b_started, c_started;
+volatile int a_n, b_n, c_n;
+
+void
+thread_a(void)
+{
+  int i;
+  printf("thread_a started\n");
+  a_started = 1;
+  while(b_started == 0 || c_started == 0)
+    thread_yield();
+
+  for (i = 0; i < 100; i++) {
+    printf("thread_a %d\n", i);
+    a_n += 1;
+    thread_yield();
+  }
+  printf("thread_a: exit after %d\n", a_n);
+  current_thread->state = FREE;
+  thread_schedule();
+}
+
+void
+thread_b(void)
+{
+  int i;
+  printf("thread_b started\n");
+  b_started = 1;
+  while(a_started == 0 || c_started == 0)
+    thread_yield();
+
+  for (i = 0; i < 100; i++) {
+    printf("thread_b %d\n", i);
+    b_n += 1;
+    thread_yield();
+  }
+  printf("thread_b: exit after %d\n", b_n);
+  current_thread->state = FREE;
+  thread_schedule();
+}
+
+void
+thread_c(void)
+{
+  int i;
+  printf("thread_c started\n");
+  c_started = 1;
+  while(a_started == 0 || b_started == 0)
+    thread_yield();
+
+  for (i = 0; i < 100; i++) {
+    printf("thread_c %d\n", i);
+    c_n += 1;
+    thread_yield();
+  }
+  printf("thread_c: exit after %d\n", c_n);
+  current_thread->state = FREE;
+  thread_schedule();
+}
+\end{lstlisting}
+
+\subsection{Makefile Configuration}
+Because \texttt{\_uthread} requires linking both \texttt{uthread.o} and \texttt{uthread\_switch.o}, an explicit linker rule was appended to \texttt{Makefile}:
+
+\begin{lstlisting}[style=consolestyle, caption={Build Rule in \texttt{Makefile}}]
+UPROGS=\
+...
+	$U/_uthread\
+
+$U/_uthread: $U/uthread.o $U/uthread_switch.o $(ULIB) $U/user.ld
+	$(LD) $(LDFLAGS) -T $U/user.ld -o $U/_uthread $U/uthread.o $U/uthread_switch.o $(ULIB)
+	$(OBJDUMP) -S $U/_uthread > $U/uthread.asm
+\end{lstlisting}
+
+% ============================================================================
+% 3. VERIFICATION AND EXECUTION TRACE
+% ============================================================================
+\section{Verification and Execution Trace}
+
+\subsection{Observed QEMU Execution Output}
+Building xv6 and executing \texttt{uthread} produced the expected round-robin execution sequence:
+
+\begin{lstlisting}[style=consolestyle, caption={QEMU Console Output from \texttt{uthread}}]
+$ uthread
+thread_a started
+thread_b started
+thread_c started
+thread_c 0
+thread_a 0
+thread_b 0
+thread_c 1
+thread_a 1
+thread_b 1
+thread_c 2
+thread_a 2
+thread_b 2
+thread_c 3
+...
+thread_c 99
+thread_a 99
+thread_b 99
+thread_c: exit after 100
+thread_a: exit after 100
+thread_b: exit after 100
+thread_schedule: no runnable threads
+\end{lstlisting}
+
+\subsection{Trace Analysis}
+\begin{enumerate}
+    \item \textbf{Startup Barrier}:
+    \begin{itemize}
+        \item \texttt{thread\_a} starts first, sets \texttt{a\_started = 1}, and calls \texttt{thread\_yield()} because \texttt{b\_started} and \texttt{c\_started} are 0.
+        \item The scheduler switches to \texttt{thread\_b}, which sets \texttt{b\_started = 1} and calls \texttt{thread\_yield()}.
+        \item The scheduler switches to \texttt{thread\_c}, which sets \texttt{c\_started = 1}. Since both \texttt{a\_started} and \texttt{b\_started} are now 1, the while-condition is false; \texttt{thread\_c} immediately enters its counting loop and emits \texttt{thread\_c 0}.
+    \end{itemize}
+    \item \textbf{Symmetric Interleaving}:
+    When \texttt{thread\_c} calls \texttt{thread\_yield()}, the round-robin search finds \texttt{thread\_a}, which exits its spin loop and prints \texttt{thread\_a 0}, yielding to \texttt{thread\_b} which prints \texttt{thread\_b 0}. The pattern \texttt{c -> a -> b} cycles deterministically 100 times.
+    \item \textbf{Clean Exit}:
+    Upon completing 100 iterations, each thread marks its status as \texttt{FREE} and calls \texttt{thread\_schedule()}. Once all threads have exited, the scheduler detects that no runnable threads remain, reports \texttt{thread\_schedule: no runnable threads}, and terminates via \texttt{exit(-1)}.
+\end{enumerate}
+
+% ============================================================================
+% 4. OBSERVATION ANSWERS
+% ============================================================================
+\section{Observation Answers}
+
+\subsection{Saved Registers and Role of \texttt{ra}}
+\textbf{Question:} What exactly does \texttt{thread\_switch} save and load? Why is \texttt{ra} the register that makes execution continue in the other thread?
+
+\textbf{Answer:}
+
+\subsubsection{1. What \texttt{thread\_switch} Saves and Loads}
+\texttt{thread\_switch(struct context *old, struct context *new)} saves the callee-saved registers of the currently running thread into \texttt{old->ctx} (referenced by register \texttt{a0}) and restores the callee-saved registers of the next thread from \texttt{new->ctx} (referenced by register \texttt{a1}).
+
+Specifically, it saves and restores exactly 14 64-bit registers:
+\begin{itemize}
+    \item \texttt{ra} (offset 0): Return Address
+    \item \texttt{sp} (offset 8): Stack Pointer
+    \item \texttt{s0} (offset 16): Frame Pointer / Saved Register 0
+    \item \texttt{s1}--\texttt{s11} (offsets 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104): Callee-saved general-purpose registers
+\end{itemize}
+
+Caller-saved registers (\texttt{t0}--\texttt{t6}, \texttt{a0}--\texttt{a7}) are \textbf{not} saved by \texttt{thread\_switch}. According to the standard RISC-V calling convention (ABI), any C function calling \texttt{thread\_yield()} or \texttt{thread\_schedule()} expects caller-saved registers to be overwritten by the callee. Therefore, the C compiler has already saved any live values residing in caller-saved registers onto the calling thread's own private stack prior to calling \texttt{thread\_switch}.
+
+\subsubsection{2. Why \texttt{ra} Continues Execution in the Other Thread}
+In RISC-V assembly, the return instruction \texttt{ret} is a pseudo-instruction for \texttt{jalr zero, 0(ra)} (jump and link register to the address in \texttt{ra}, writing zero to the destination link register). Consequently, executing \texttt{ret} unconditionally redirects the CPU Program Counter (\texttt{pc}) to the memory address stored in the \texttt{ra} register.
+
+When \texttt{thread\_switch} executes:
+\begin{enumerate}
+    \item It loads \texttt{ra} from \texttt{0(a1)} (the target thread's saved \texttt{ctx.ra}).
+    \item It loads \texttt{sp} from \texttt{8(a1)} (the target thread's private stack).
+    \item When \texttt{ret} executes:
+    \begin{itemize}
+        \item \textbf{For a newly initialized thread}: \texttt{thread\_create()} configured \texttt{t->ctx.ra = (uint64)func}. Thus, \texttt{ret} jumps directly to the entry point of the thread function (\texttt{thread\_a}, \texttt{thread\_b}, or \texttt{thread\_c}), beginning execution with \texttt{sp} pointing to the top of its private stack.
+        \item \textbf{For an existing thread returning from a yield}: \texttt{ra} holds the address of the instruction immediately following the call to \texttt{thread\_switch()} inside \texttt{thread\_schedule()}. Thus, \texttt{ret} resumes execution right after \texttt{thread\_switch()} inside that thread's context, making it appear as though \texttt{thread\_switch()} had just returned normally in that thread.
+    \end{itemize}
+\end{enumerate}
+
+% ============================================================================
+% 5. CONCLUSION
+% ============================================================================
+\section{Conclusion}
+Laboratory Work No.~18 demonstrated the internal mechanics of thread context switching without operating system kernel intervention. By saving and restoring the callee-saved registers (\texttt{ra}, \texttt{sp}, \texttt{s0}--\texttt{s11}) and switching stacks, user-space programs can implement independent execution streams with minimal overhead. The implementation successfully passed all tests, achieving deterministic round-robin scheduling and barrier synchronization.
+
+\end{document}

@@ -1,0 +1,392 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{textcomp}
+\usepackage{newunicodechar}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{tabularx}
+\usepackage{array}
+
+% Adjust header height for fancyhdr
+\setlength{\headheight}{15pt}
+\addtolength{\topmargin}{-3pt}
+
+% Romanian Unicode support for standard pdflatex / tectonic
+\newunicodechar{Ă}{\v{A}}
+\newunicodechar{ă}{\v{a}}
+\newunicodechar{Â}{\^{A}}
+\newunicodechar{â}{\^{a}}
+\newunicodechar{Î}{\^{I}}
+\newunicodechar{î}{\^{i}}
+\newunicodechar{Ș}{\c{S}}
+\newunicodechar{ș}{\c{s}}
+\newunicodechar{Ț}{\c{T}}
+\newunicodechar{ț}{\c{t}}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=cyan,
+    citecolor=blue
+}
+
+% Colors for code listings
+\definecolor{codebg}{gray}{0.96}
+\definecolor{codegreen}{rgb}{0.13,0.55,0.13}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{codeblue}{rgb}{0.05,0.25,0.70}
+
+\lstset{
+    backgroundcolor=\color{codebg},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    breakatwhitespace=true,
+    frame=single,
+    rulecolor=\color{gray!40},
+    keepspaces=true,
+    showstringspaces=false,
+    upquote=true,
+    columns=fullflexible,
+    tabsize=2
+}
+
+\lstdefinestyle{cstyle}{
+    language=C,
+    commentstyle=\color{codegreen}\itshape,
+    keywordstyle=\color{codeblue}\bfseries,
+    stringstyle=\color{codepurple},
+    numbers=left,
+    numbersep=7pt,
+    numberstyle=\tiny\color{codegray},
+    stepnumber=1
+}
+
+\lstdefinestyle{consolestyle}{
+    backgroundcolor=\color{codebg},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    frame=single,
+    rulecolor=\color{gray!40},
+    numbers=none
+}
+
+% Header and Footer
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{Operating Systems -- Lab 17}
+\rhead{Iulian Pavlov, FAF-241}
+\cfoot{\thepage}
+
+\begin{document}
+
+% ============================================================================
+% TITLE PAGE
+% ============================================================================
+\hypersetup{pageanchor=false}
+\begin{titlepage}
+\begin{center}
+    \includegraphics[width=0.3\textwidth]{logo.png} \\[0.2cm]
+
+    \textbf{MINISTRY OF EDUCATION, CULTURE AND RESEARCH \\ OF THE REPUBLIC OF MOLDOVA} \\[0.3cm]
+
+    \textbf{Technical University of Moldova \\ Faculty of Computers, Informatics and Microelectronics \\ Department of Software and Automation Engineering} \\[1.8cm]
+
+    \textbf{Iulian Pavlov, FAF-241}\\[0.5cm]
+
+    \Huge \textbf{Report} \\[0.5cm]
+
+    \large Laboratory work nr. 17 \\[0.5cm]
+
+    \textbf{\Large Threads Share Memory, and Race} \\[0.3cm]
+    \normalsize Course: Operating Systems (Track A: the real OS, from the outside (Linux)) \\[2.2cm]
+
+    \begin{flushright}
+        \textit{Checked by:} \\
+        \textbf{Reițman Patricia}, \textit{University Assistant} \\
+        Department of Software and Automation Engineering, \\
+        FCIM Faculty, UTM
+    \end{flushright}
+    \vfill
+
+    Chișinău -- 2026
+\end{center}
+\end{titlepage}
+\hypersetup{pageanchor=true}
+
+\pagenumbering{roman}
+\newpage
+\tableofcontents
+\newpage
+\pagenumbering{arabic}
+
+% ============================================================================
+% 1. THEORETICAL BACKGROUND & OBJECTIVES
+% ============================================================================
+\section{Theoretical Background and Objectives}
+
+\subsection{Laboratory Objectives and Context}
+Threads are concurrent units of execution running within the context of a single operating system process. While processes enjoy strong spatial memory isolation enforced by hardware page tables and the kernel's virtual memory subsystem, threads created via POSIX threads (\texttt{pthread}) execute inside the same virtual address space. They share code, heap allocations, and global variables.
+
+This architecture offers major performance advantages by eliminating context switch overheads associated with address space re-mapping (TLB invalidation) and enabling instant data sharing. However, concurrent updates to shared mutable data introduce race conditions when executed without synchronization.
+
+The principal objectives of Laboratory Work No.~17 are:
+\begin{itemize}
+    \item \textbf{Verifying Shared Memory}: Demonstrating that independent threads of execution immediately observe and modify the same global variable in memory.
+    \item \textbf{Observing Lost Updates}: Quantifying the non-deterministic discrepancy between expected increments and the actual final counter value caused by unsynchronized concurrent access.
+    \item \textbf{Scaling Contention}: Escalating contention from two to four threads, demonstrating how collision probabilities increase non-linearly with thread count.
+    \item \textbf{Formulating the Solution}: Explaining the machine-level load-modify-store cycle that causes the race, and implementing a thread-safe reference solution using mutual exclusion.
+\end{itemize}
+
+% ============================================================================
+% 2. IMPLEMENTATION
+% ============================================================================
+\section{Implementation Details}
+
+\subsection{Part 1: Shared Memory and Racing Counter (\texttt{fire.c})}
+Listing~\ref{lst:fire} provides the implementation of \texttt{fire.c}. Two threads are spawned via \texttt{pthread\_create}. Each thread executes a loop of $N = 1\,000\,000$ iterations, incrementing the shared global variable \texttt{counter}.
+
+\begin{lstlisting}[style=cstyle, caption={Unsynchronized Two-Thread Racing Counter (\texttt{fire.c})}, label={lst:fire}]
+/* fire.c - two threads of one process share the same memory.
+ * Both add to the same counter, a million times each, WITHOUT a lock.
+ * Build: gcc -Wall -Wextra -pthread -o fire fire.c Run: ./fire
+ */
+#include <stdio.h>
+#include <pthread.h>
+
+#define N 1000000
+long counter = 0; /* one variable, shared by both threads */
+
+void *work(void *arg) {
+    long id = (long)arg;
+    printf("thread %ld sees counter = %ld\n", id, counter);
+    for (int i = 0; i < N; i++)
+        counter++; /* NOT atomic: read, add, write */
+    return NULL;
+}
+
+int main(void) {
+    pthread_t a, b;
+    pthread_create(&a, NULL, work, (void *)1);
+    pthread_create(&b, NULL, work, (void *)2);
+    pthread_join(a, NULL);
+    pthread_join(b, NULL);
+    printf("expected: %d\n", 2 * N);
+    printf("counter: %ld (lost updates: the race)\n", counter);
+    return 0;
+}
+\end{lstlisting}
+
+\subsection{Part 2: Escalating Contention (\texttt{fire4.c})}
+Listing~\ref{lst:fire4} scales the contention by spawning four concurrent threads, each performing $1\,000\,000$ increments, expecting a total of $4\,000\,000$.
+
+\begin{lstlisting}[style=cstyle, caption={Four-Thread Contention Benchmark (\texttt{fire4.c})}, label={lst:fire4}]
+#include <stdio.h>
+#include <pthread.h>
+
+#define N 1000000
+#define NUM_THREADS 4
+long counter = 0;
+
+void *work(void *arg) {
+    long id = (long)arg;
+    printf("thread %ld sees counter = %ld\n", id, counter);
+    for (int i = 0; i < N; i++)
+        counter++;
+    return NULL;
+}
+
+int main(void) {
+    pthread_t th[NUM_THREADS];
+    for (long i = 0; i < NUM_THREADS; i++) {
+        pthread_create(&th[i], NULL, work, (void *)(i + 1));
+    }
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_join(th[i], NULL);
+    }
+    printf("expected: %d\n", NUM_THREADS * N);
+    printf("counter: %ld (lost updates: the race, 4 threads)\n", counter);
+    return 0;
+}
+\end{lstlisting}
+
+\subsection{Part 2 Extension: Safe Increment Baseline (\texttt{fire\_safe.c})}
+Listing~\ref{lst:firesafe} implements the proposed synchronization fix using a POSIX mutex to establish a critical section around \texttt{counter++}.
+
+\begin{lstlisting}[style=cstyle, caption={Synchronized Counter using POSIX Mutex (\texttt{fire\_safe.c})}, label={lst:firesafe}]
+#include <stdio.h>
+#include <pthread.h>
+
+#define N 1000000
+#define NUM_THREADS 4
+long counter = 0;
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+
+void *work(void *arg) {
+    long id = (long)arg;
+    for (int i = 0; i < N; i++) {
+        pthread_mutex_lock(&lock);
+        counter++;
+        pthread_mutex_unlock(&lock);
+    }
+    printf("thread %ld finished\n", id);
+    return NULL;
+}
+
+int main(void) {
+    pthread_t th[NUM_THREADS];
+    for (long i = 0; i < NUM_THREADS; i++) {
+        pthread_create(&th[i], NULL, work, (void *)(i + 1));
+    }
+    for (int i = 0; i < NUM_THREADS; i++) {
+        pthread_join(th[i], NULL);
+    }
+    printf("expected: %d\n", NUM_THREADS * N);
+    printf("counter: %ld (safe with mutex: no lost updates)\n", counter);
+    return 0;
+}
+\end{lstlisting}
+
+% ============================================================================
+% 3. EXPERIMENTAL VERIFICATION
+% ============================================================================
+\section{Experimental Verification and Analysis}
+
+\subsection{Compilation and Execution Protocol}
+All programs were compiled with \texttt{gcc -Wall -Wextra -pthread -O2} on Linux x86\_64. Repeated runs were performed to analyze variance.
+
+\begin{lstlisting}[style=consolestyle, caption={Benchmark Execution Log}]
+$ ./fire
+--- Run 1 ---
+thread 1 sees counter = 0
+thread 2 sees counter = 0
+expected: 2000000
+counter: 1048866 (lost updates: the race)
+--- Run 2 ---
+thread 2 sees counter = 0
+thread 1 sees counter = 0
+expected: 2000000
+counter: 1107049 (lost updates: the race)
+--- Run 3 ---
+thread 1 sees counter = 0
+thread 2 sees counter = 0
+expected: 2000000
+counter: 1013978 (lost updates: the race)
+
+$ ./fire4
+--- Run 1 ---
+thread 1 sees counter = 0
+thread 3 sees counter = 0
+thread 2 sees counter = 0
+thread 4 sees counter = 0
+expected: 4000000
+counter: 1819855 (lost updates: the race, 4 threads)
+--- Run 2 ---
+thread 1 sees counter = 0
+thread 4 sees counter = 0
+thread 2 sees counter = 0
+thread 3 sees counter = 0
+expected: 4000000
+counter: 1339380 (lost updates: the race, 4 threads)
+--- Run 3 ---
+thread 1 sees counter = 0
+thread 3 sees counter = 0
+thread 4 sees counter = 4577
+thread 2 sees counter = 0
+expected: 4000000
+counter: 1510870 (lost updates: the race, 4 threads)
+--- Run 4 ---
+thread 1 sees counter = 0
+thread 4 sees counter = 103
+thread 2 sees counter = 0
+thread 3 sees counter = 0
+expected: 4000000
+counter: 1144901 (lost updates: the race, 4 threads)
+
+$ ./fire_safe
+thread 2 finished
+thread 4 finished
+thread 1 finished
+thread 3 finished
+expected: 4000000
+counter: 4000000 (safe with mutex: no lost updates)
+\end{lstlisting}
+
+\subsection{Comparative Summary}
+Table~\ref{tab:comparison} highlights the statistical impact of increasing thread count and applying mutual exclusion.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{lcccc}
+\toprule
+\textbf{Configuration} & \textbf{Expected} & \textbf{Observed (Avg)} & \textbf{Lost Updates} & \textbf{Loss Rate} \\
+\midrule
+2 Threads (\texttt{fire}) & 2,000,000 & 1,069,906 & 930,094 & 46.5\% \\
+4 Threads (\texttt{fire4}) & 4,000,000 & 1,453,751 & 2,546,249 & 63.7\% \\
+4 Threads (\texttt{fire\_safe}) & 4,000,000 & 4,000,000 & 0 & 0.0\% \\
+\bottomrule
+\end{tabularx}
+\caption{Empirical Comparison of Lost Updates across Workloads}
+\label{tab:comparison}
+\end{table}
+
+Notice that in 4-thread runs, the loss rate escalated significantly (exceeding 70\% in the worst observed trial of 1,144,901). Furthermore, Run~3 and Run~4 of \texttt{fire4} captured Thread~4 reading \texttt{counter = 4577} and \texttt{counter = 103} at startup, directly corroborating that prior threads had already begun mutating the shared memory address before the fourth thread reached its initial print statement.
+
+% ============================================================================
+% 4. OBSERVATION ANSWERS
+% ============================================================================
+\section{Observation Answers}
+
+\subsection{Observe 1: Non-Zero Initial Value and Memory Sharing}
+\textbf{Question:} Thread 2 prints a non-zero counter at the start. What does that prove about the memory of the two threads?
+
+\textbf{Answer:}
+It proves that threads within the same process share the exact same address space and physical memory frames. Unlike distinct processes (which are given isolated, copy-on-write memory spaces created by \texttt{fork()}), threads created by \texttt{pthread\_create()} share the same data segment and heap. When Thread~2 commences execution and inspects the global variable \texttt{counter}, it directly observes the memory modifications already performed and flushed to cache/RAM by Thread~1, without any inter-process communication or memory duplication.
+
+\subsection{Observe 2: Lost Updates and the Three Steps of \texttt{counter++}}
+\textbf{Question:} Why is the final counter less than 2,000,000, and different each run? Explain with the three steps of \texttt{counter++}.
+
+\textbf{Answer:}
+In high-level C, \texttt{counter++} appears as a single statement, but modern CPU architectures do not execute memory increment as an atomic operation. At machine level, it decomposes into three discrete steps:
+\begin{enumerate}
+    \item \textbf{Read (Load)}: The CPU reads the value of \texttt{counter} from RAM/cache into an architectural register (\texttt{movq counter(\%rip), \%rax}).
+    \item \textbf{Add (Modify)}: The ALU increments the value inside the register (\texttt{addq \$1, \%rax}).
+    \item \textbf{Write (Store)}: The CPU writes the updated register value back to the memory location of \texttt{counter} (\texttt{movq \%rax, counter(\%rip)}).
+\end{enumerate}
+
+When multiple threads execute simultaneously across multiple physical processor cores, their instruction pipelines interleave arbitrarily:
+\begin{itemize}
+    \item At $t_0$, Thread~1 loads \texttt{counter} (e.g., value $500$) into its register $R_1$.
+    \item At $t_1$, Thread~2 also loads \texttt{counter} (still value $500$) into its register $R_2$ before Thread~1 has stored its result.
+    \item At $t_2$, Thread~1 increments $R_1$ to $501$ and stores $501$ to RAM.
+    \item At $t_3$, Thread~2 increments $R_2$ to $501$ and stores $501$ to RAM.
+\end{itemize}
+Although two increment operations occurred, \texttt{counter} only advanced by 1; Thread~1's update was completely overwritten and lost. Because CPU scheduling, interrupt handling, and memory bus arbitration vary dynamically from microsecond to microsecond, the race windows occur at different frequencies on every run, resulting in non-deterministic outcomes strictly less than the theoretical maximum.
+
+\subsection{Observe 3: The Unified Principle of Mutual Exclusion}
+\textbf{Question:} In one sentence: what single idea would stop the lost updates? (You build it next week.)
+
+\textbf{Answer:}
+Enforcing mutual exclusion around the critical section (e.g., via a mutex lock or atomic hardware instruction) so that only one thread can execute the read-modify-write sequence on the shared counter at any given instant.
+
+% ============================================================================
+% 5. CONCLUSION
+% ============================================================================
+\section{Conclusion}
+Laboratory Work No.~17 successfully visualized the power and perils of thread-level concurrency. Threads allow instantaneous data exchange via shared memory, but concurrent read-modify-write sequences inevitably corrupt state in the absence of synchronization. We demonstrated that scaling contention increases lost updates dramatically (up to $>70\%$). Applying mutual exclusion guarantees serializability and restores deterministic program correctness.
+
+\end{document}
+

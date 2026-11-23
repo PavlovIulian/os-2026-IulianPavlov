@@ -1,0 +1,72 @@
+=== Running ./fire (2 threads, Part 1) ===
+--- Run 1 ---
+thread 1 sees counter = 0
+thread 2 sees counter = 0
+expected: 2000000
+counter: 1048866 (lost updates: the race)
+--- Run 2 ---
+thread 2 sees counter = 0
+thread 1 sees counter = 0
+expected: 2000000
+counter: 1107049 (lost updates: the race)
+--- Run 3 ---
+thread 1 sees counter = 0
+thread 2 sees counter = 0
+expected: 2000000
+counter: 1013978 (lost updates: the race)
+--- Run 4 ---
+thread 1 sees counter = 0
+thread 2 sees counter = 0
+expected: 2000000
+counter: 1134366 (lost updates: the race)
+--- Run 5 ---
+thread 1 sees counter = 0
+thread 2 sees counter = 0
+expected: 2000000
+counter: 1045272 (lost updates: the race)
+
+=== Running ./fire4 (4 threads, Part 2) ===
+--- Run 1 ---
+thread 1 sees counter = 0
+thread 3 sees counter = 0
+thread 2 sees counter = 0
+thread 4 sees counter = 0
+expected: 4000000
+counter: 1819855 (lost updates: the race, 4 threads)
+--- Run 2 ---
+thread 1 sees counter = 0
+thread 4 sees counter = 0
+thread 2 sees counter = 0
+thread 3 sees counter = 0
+expected: 4000000
+counter: 1339380 (lost updates: the race, 4 threads)
+--- Run 3 ---
+thread 1 sees counter = 0
+thread 3 sees counter = 0
+thread 4 sees counter = 4577
+thread 2 sees counter = 0
+expected: 4000000
+counter: 1510870 (lost updates: the race, 4 threads)
+--- Run 4 ---
+thread 1 sees counter = 0
+thread 4 sees counter = 103
+thread 2 sees counter = 0
+thread 3 sees counter = 0
+expected: 4000000
+counter: 1144901 (lost updates: the race, 4 threads)
+
+=== Running ./fire_safe (4 threads with pthread_mutex, Proposed Fix) ===
+--- Run 1 ---
+thread 2 finished
+thread 4 finished
+thread 1 finished
+thread 3 finished
+expected: 4000000
+counter: 4000000 (safe with mutex: no lost updates)
+--- Run 2 ---
+thread 1 finished
+thread 2 finished
+thread 3 finished
+thread 4 finished
+expected: 4000000
+counter: 4000000 (safe with mutex: no lost updates)
